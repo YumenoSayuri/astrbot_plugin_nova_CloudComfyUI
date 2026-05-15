@@ -1,0 +1,93 @@
+{
+    "base_url": {
+        "description": "梦羽 AI 绘图服务地址",
+        "hint": "接口站点根地址，例如 https://sd.exacg.cc",
+        "type": "string",
+        "default": "https://sd.exacg.cc"
+    },
+    "api_key": {
+        "description": "梦羽 API Key",
+        "hint": "在个人中心生成的 API 密钥，按 Bearer Token 方式调用",
+        "type": "string",
+        "default": ""
+    },
+    "proxy_url": {
+        "description": "代理地址",
+        "hint": "可选，例如 http://127.0.0.1:7897。Node undici 桥接默认会优先使用它；Python兜底路径也会复用",
+        "type": "string",
+        "default": "http://127.0.0.1:7897"
+    },
+    "enable_undici_fallback": {
+        "description": "保留 undici 桥接能力",
+        "hint": "当前默认主路径就是 Node undici_bridge.mjs；此项主要用于兼容内部调用策略",
+        "type": "bool",
+        "default": true
+    },
+    "default_resolution": {
+        "description": "默认生成图片分辨率",
+        "hint": "格式: 宽x高，如 512x768, 768x512。或使用预设: portrait, landscape, square, 1024",
+        "type": "string",
+        "default": "512x768"
+    },
+    "default_steps": {
+        "description": "默认生成步数",
+        "hint": "普通图片模型默认 28，范围建议 1-50",
+        "type": "int",
+        "slider": {
+            "min": 1,
+            "max": 50,
+            "step": 1
+        },
+        "default": 28
+    },
+    "default_cfg": {
+        "description": "默认 CFG 引导强度",
+        "hint": "普通图片模型建议 1.0-10.0",
+        "type": "float",
+        "slider": {
+            "min": 1.0,
+            "max": 10.0,
+            "step": 0.5
+        },
+        "default": 7.0
+    },
+    "default_model_index": {
+        "description": "默认模型索引",
+        "hint": "参考 README 中的模型表。推荐默认使用 10（wai16）；18/19 为图片编辑模型，20-22 为视频模型（当前插件暂不支持）",
+        "type": "int",
+        "slider": {
+            "min": 0,
+            "max": 22,
+            "step": 1
+        },
+        "default": 10
+    },
+    "default_negative_prompt": {
+        "description": "默认负面提示词",
+        "hint": "不希望出现在图片中的内容；图片编辑模型通常不会使用该字段",
+        "type": "text",
+        "default": "low quality, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, normal quality, jpeg artifacts, signature, watermark, username, blurry"
+    },
+    "timeout": {
+        "description": "请求超时时间（秒）",
+        "hint": "生图可能需要较长时间，建议设置 120-300 秒",
+        "type": "int",
+        "slider": {
+            "min": 60,
+            "max": 600,
+            "step": 30
+        },
+        "default": 180
+    },
+    "debounce_interval": {
+        "description": "防抖时长（秒）",
+        "hint": "防抖时间内无法重复提交生图请求，每个用户单独计时",
+        "type": "int",
+        "slider": {
+            "min": 0,
+            "max": 120,
+            "step": 5
+        },
+        "default": 15
+    }
+}

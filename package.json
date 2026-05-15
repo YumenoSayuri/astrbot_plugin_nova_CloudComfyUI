@@ -1,0 +1,15 @@
+{
+  "name": "astrbot_plugin_nova_sexdraw",
+  "version": "1.0.0",
+  "description": "直连梦羽 AI 绘图接口 `https://sd.exacg.cc/api/v1/generate_image` 的 AstrBot 插件。",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "undici": "^8.2.0"
+  }
+}
