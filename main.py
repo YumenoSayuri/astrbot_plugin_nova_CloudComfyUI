@@ -84,6 +84,38 @@ class NovaSexDraw(Star):
         self._proxy_url: str = ""
         self._enable_undici_fallback: bool = True
 
+    def _ensure_node_dependencies(self) -> None:
+        package_json = self.plugin_dir / "package.json"
+        node_modules_undici = self.plugin_dir / "node_modules" / "undici"
+
+        if node_modules_undici.exists():
+            logger.info("[NovaSexDraw] 检测到 undici 依赖已存在")
+            return
+
+        if not package_json.exists():
+            raise RuntimeError("缺少 package.json，无法自动安装 Node 依赖")
+
+        logger.warning("[NovaSexDraw] 未检测到 undici，开始自动执行 npm install")
+        result = subprocess.run(
+            ["npm", "install"],
+            cwd=str(self.plugin_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=300,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"自动安装 Node 依赖失败: {(result.stderr or result.stdout or '未知错误')[:1000]}"
+            )
+
+        if not node_modules_undici.exists():
+            raise RuntimeError("npm install 执行完成，但未找到 node_modules/undici")
+
+        logger.info("[NovaSexDraw] Node 依赖安装完成")
+
     async def initialize(self):
         """初始化插件"""
         timeout = httpx.Timeout(self.config.get("timeout", 180))
@@ -100,6 +132,8 @@ class NovaSexDraw(Star):
         self._api_key = self.config.get("api_key", "").strip()
         self._proxy_url = proxy_url
         self._enable_undici_fallback = bool(self.config.get("enable_undici_fallback", True))
+
+        self._ensure_node_dependencies()
 
         logger.info(f"[NovaSexDraw] API Base URL: {self._base_url}")
         logger.info(f"[NovaSexDraw] Proxy: {self._proxy_url or 'disabled'}")
@@ -375,14 +409,7 @@ class NovaSexDraw(Star):
 
         logger.debug(f"[NovaSexDraw] 请求体: {json.dumps(payload, ensure_ascii=False)}")
 
-        try:
-            result = await self._call_generate_api_undici(payload)
-        except RuntimeError as exc:
-            if self._enable_undici_fallback:
-                logger.warning(f"[NovaSexDraw] Node 桥接失败，尝试 Python 兼容路径: {exc}")
-                result = await self._call_generate_api_httpx(payload, headers)
-            else:
-                raise
+        result = await self._call_generate_api_undici(payload)
 
         if not result.get("success"):
             raise RuntimeError(result.get("error") or result.get("message") or "梦羽接口返回失败")
