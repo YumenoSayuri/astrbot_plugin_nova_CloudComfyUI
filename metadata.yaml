@@ -1,6 +1,6 @@
 name: astrbot_plugin_nova_sexdraw
 display_name: Nova梦羽绘图
 desc: 默认通过 Node undici 桥接调用梦羽 AI 绘图接口，支持受限触发的 AI 主动文生图、主动改图、QQ消息带图提取、prompt 内 model10/model19 解析、自定义分辨率与模型索引。支持 NSFW。
-version: v1.2.1
+version: v1.2.2
 author: 辉宝
 repo: https://github.com/Yumenosora/astrbot_plugin_nova_sexdraw

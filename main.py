@@ -4,6 +4,7 @@ Nova SexDraw - 梦羽 AI 绘图插件
 """
 
 import json
+import random
 import re
 import subprocess
 import time
@@ -63,9 +64,7 @@ class NovaSexDraw(Star):
     QUALITY_PROMPT_TAGS = [
         "masterpiece",
         "best quality",
-        "ultra detailed",
-        "highres",
-        "8k",
+        "high quality",
     ]
 
     def __init__(self, context: Context, config: dict):
@@ -225,11 +224,19 @@ class NovaSexDraw(Star):
             value = int(self.config.get("default_model_index", 10))
         return value
 
-    def _normalize_seed(self, seed: str | int | None) -> int:
+    def _normalize_seed(self, seed: str | int | None, model_index: int) -> int:
         try:
-            return int(seed) if seed not in ("", None) else -1
+            value = int(seed) if seed not in ("", None) else 0
         except (TypeError, ValueError):
-            return -1
+            value = 0
+
+        if model_index in self.EDIT_MODEL_INDEXES:
+            return value if value > 0 else -1
+
+        if value > 0:
+            return value
+
+        return random.randint(1, 2_147_483_647)
 
     def _build_request_payload(
         self,
@@ -525,7 +532,7 @@ class NovaSexDraw(Star):
         width, height = self._parse_resolution(actual_resolution or None)
         actual_steps = self._normalize_steps(steps, actual_model)
         actual_cfg = self._normalize_cfg(cfg, actual_model)
-        actual_seed = self._normalize_seed(seed)
+        actual_seed = self._normalize_seed(seed, actual_model)
         actual_neg = negative_prompt or self.config.get("default_negative_prompt", "")
         actual_image_source = image_source.strip()
 
@@ -533,6 +540,11 @@ class NovaSexDraw(Star):
             actual_image_source = await self._extract_image_url_from_event(event)
 
         prompt_text = self._inject_quality_tags(prompt_text, actual_model)
+
+        logger.info(
+            f"[NovaSexDraw] 实际请求参数: model={actual_model}, size={width}x{height}, "
+            f"steps={actual_steps}, cfg={actual_cfg}, seed={actual_seed}"
+        )
 
         result = await self._call_generate_api(
             prompt=prompt_text,
@@ -557,6 +569,7 @@ class NovaSexDraw(Star):
         result["actual_image_source"] = actual_image_source
         result["actual_prompt"] = prompt_text
         result["actual_resolution"] = actual_resolution
+        result["actual_seed"] = actual_seed
         return result
 
     @filter.llm_tool()
@@ -592,7 +605,8 @@ class NovaSexDraw(Star):
                 f"图片生成完成！\n"
                 f"- 模型: {result.get('model_name', '未知')}\n"
                 f"- 尺寸: {result.get('width')}x{result.get('height')}\n"
-                f"- 消耗/剩余积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
+                f"- 消耗/剩余积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}\n"
+                f"- Seed: {result.get('actual_seed', '?')}"
             )
         except Exception as e:
             logger.error(f"[NovaSexDraw] 主动文生图失败: {e}")
@@ -646,7 +660,8 @@ class NovaSexDraw(Star):
                 f"图片编辑完成！\n"
                 f"- 模型: {result.get('model_name', '未知')}\n"
                 f"- 尺寸: {result.get('width')}x{result.get('height')}\n"
-                f"- 消耗/剩余积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
+                f"- 消耗/剩余积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}\n"
+                f"- Seed: {result.get('actual_seed', '?')}"
             )
         except Exception as e:
             logger.error(f"[NovaSexDraw] 主动图编辑失败: {e}")
@@ -655,7 +670,7 @@ class NovaSexDraw(Star):
             self._processing_users.discard(request_id)
 
     @filter.command("sexdraw", alias={"色图", "涩图", "画图"})
-    async def sexdraw_command(self, event: AstrMessageEvent, prompt: str = ""):
+    async def sexdraw_command(self, event: AstrMessageEvent):
         """生成图片指令
 
         用法示例：
@@ -673,9 +688,9 @@ class NovaSexDraw(Star):
             yield event.plain_result(
                 "请提供提示词！\n"
                 "用法: /sexdraw <提示词> [分辨率]\n"
-                "示例1: /sexdraw 1girl, cute, silver hair portrait\n"
+                "示例1: /sexdraw 1girl, silver hair portrait\n"
                 "示例2: /sexdraw make hair black --model=18 --image_source=https://example.com/a.jpg"
-            )
+            ).stop_event()
             return
 
         resolution = ""
@@ -709,43 +724,41 @@ class NovaSexDraw(Star):
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
-            yield event.plain_result(f"请等待 {interval} 秒后再试")
+            yield event.plain_result(f"请等待 {interval} 秒后再试").stop_event()
             return
 
         if request_id in self._processing_users:
-            yield event.plain_result("您有正在进行的生图任务，请稍候...")
+            yield event.plain_result("您有正在进行的生图任务，请稍候...").stop_event()
             return
 
         self._processing_users.add(request_id)
 
         try:
             actual_model = explicit_model if explicit_model is not None else self._normalize_model_index(None)
-            width, height = self._parse_resolution(resolution or None)
-            if actual_model in self.EDIT_MODEL_INDEXES and not image_source:
-                image_source = await self._extract_image_url_from_event(event)
 
-            result = await self._call_generate_api(
+            result = await self._run_draw_request(
+                event=event,
                 prompt=prompt,
-                negative_prompt=self.config.get("default_negative_prompt", ""),
-                width=width,
-                height=height,
-                steps=self._normalize_steps(None, actual_model),
-                cfg=self._normalize_cfg(None, actual_model),
-                model_index=actual_model,
-                seed=-1,
+                resolution=resolution,
+                model_index=str(actual_model),
                 image_source=image_source,
+                force_edit=actual_model in self.EDIT_MODEL_INDEXES,
+                auto_send=False,
             )
 
-            image_path = await self._download_image(result["image_url"])
-            yield event.chain_result([Image.fromFileSystem(str(image_path))])
+            image_path = result.get("image_path", "")
+            if image_path:
+                yield event.chain_result([Image.fromFileSystem(str(image_path))]).stop_event()
             yield event.plain_result(
-                f"生成完成：{result.get('model_name', '未知')} | {width}x{height} | "
-                f"消耗/剩余积分 {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
-            )
+                f"生成完成：{result.get('model_name', '未知')} | "
+                f"{result.get('width')}x{result.get('height')} | "
+                f"消耗/剩余积分 {result.get('points_used', '?')}/{result.get('remaining_points', '?')} | "
+                f"Seed {result.get('actual_seed', '?')}"
+            ).stop_event()
 
         except Exception as e:
             logger.error(f"[NovaSexDraw] 指令生图失败: {e}")
-            yield event.plain_result(f"生成图片失败: {str(e)}")
+            yield event.plain_result(f"生成图片失败: {str(e)}").stop_event()
 
         finally:
             self._processing_users.discard(request_id)
