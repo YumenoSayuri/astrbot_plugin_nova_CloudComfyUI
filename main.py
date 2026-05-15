@@ -60,6 +60,13 @@ class NovaSexDraw(Star):
 
     EDIT_MODEL_INDEXES = {18, 19}
     VIDEO_MODEL_INDEXES = {20, 21, 22}
+    QUALITY_PROMPT_TAGS = [
+        "masterpiece",
+        "best quality",
+        "ultra detailed",
+        "highres",
+        "8k",
+    ]
 
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -167,7 +174,7 @@ class NovaSexDraw(Star):
             value = 0.0
 
         if value <= 0:
-            value = float(self.config.get("default_cfg", 7.0))
+            value = float(self.config.get("default_cfg", 5.0))
 
         if model_index in self.EDIT_MODEL_INDEXES:
             return value
@@ -427,6 +434,38 @@ class NovaSexDraw(Star):
         logger.info(f"[NovaSexDraw] 图片已保存: {filepath}")
         return filepath
 
+    def _extract_model_token(self, text: str) -> tuple[str, str]:
+        match = re.search(r"\bmodel\s*(\d{1,2})\b", text, re.IGNORECASE)
+        if not match:
+            return text.strip(), ""
+        model_index = match.group(1)
+        cleaned = re.sub(r"\bmodel\s*\d{1,2}\b", "", text, flags=re.IGNORECASE).strip()
+        return cleaned, model_index
+
+    def _extract_resolution_token(self, text: str) -> tuple[str, str]:
+        parts = text.rsplit(maxsplit=1)
+        if len(parts) != 2:
+            return text.strip(), ""
+
+        possible_prompt, suffix = parts
+        suffix_lower = suffix.lower()
+        if suffix_lower in self.RESOLUTION_PRESETS or re.match(r"\d+\s*[x×*X-]\s*\d+", suffix_lower):
+            return possible_prompt.strip(), suffix_lower
+        return text.strip(), ""
+
+    def _inject_quality_tags(self, prompt: str, model_index: int) -> str:
+        if model_index in self.EDIT_MODEL_INDEXES:
+            return prompt.strip()
+
+        existing_tags = {tag.strip().lower() for tag in prompt.split(",") if tag.strip()}
+        final_tags = [tag.strip() for tag in prompt.split(",") if tag.strip()]
+
+        for tag in self.QUALITY_PROMPT_TAGS:
+            if tag.lower() not in existing_tags:
+                final_tags.append(tag)
+
+        return ", ".join(final_tags)
+
     async def _run_draw_request(
         self,
         event: AstrMessageEvent,
@@ -445,11 +484,18 @@ class NovaSexDraw(Star):
         if not prompt:
             raise RuntimeError("请提供 prompt 提示词")
 
-        actual_model = self._normalize_model_index(model_index)
+        prompt_text = prompt.strip()
+        prompt_text, extracted_model = self._extract_model_token(prompt_text)
+        prompt_text, extracted_resolution = self._extract_resolution_token(prompt_text)
+
+        actual_model_input = model_index or extracted_model
+        actual_resolution = resolution or extracted_resolution
+
+        actual_model = self._normalize_model_index(actual_model_input)
         if force_edit and actual_model not in self.EDIT_MODEL_INDEXES:
             actual_model = 19
 
-        width, height = self._parse_resolution(resolution or None)
+        width, height = self._parse_resolution(actual_resolution or None)
         actual_steps = self._normalize_steps(steps, actual_model)
         actual_cfg = self._normalize_cfg(cfg, actual_model)
         actual_seed = self._normalize_seed(seed)
@@ -459,8 +505,10 @@ class NovaSexDraw(Star):
         if actual_model in self.EDIT_MODEL_INDEXES and not actual_image_source:
             actual_image_source = await self._extract_image_url_from_event(event)
 
+        prompt_text = self._inject_quality_tags(prompt_text, actual_model)
+
         result = await self._call_generate_api(
-            prompt=prompt,
+            prompt=prompt_text,
             negative_prompt=actual_neg,
             width=width,
             height=height,
@@ -480,6 +528,8 @@ class NovaSexDraw(Star):
         result["height"] = height
         result["actual_model"] = actual_model
         result["actual_image_source"] = actual_image_source
+        result["actual_prompt"] = prompt_text
+        result["actual_resolution"] = actual_resolution
         return result
 
     @filter.llm_tool()
@@ -487,29 +537,11 @@ class NovaSexDraw(Star):
         self,
         event: AstrMessageEvent,
         prompt: str,
-        resolution: str = "",
-        negative_prompt: str = "",
-        model_index: str = "",
-        steps: str = "",
-        cfg: str = "",
-        seed: str = "",
     ):
-        """梦羽 ComfyUI 文生图工具。
+        """ComfyUI 文生图工具。仅当用户明确提到用comfyui生图、用comfyui画图、画色图、涩图时调用。文生图 prompt 必须是详细英文 tag 串，不要用中文自然语言。
 
-        只有当用户明确表达以下意图之一时，才优先调用本工具：
-        - 明确说“用comfyui生图”“用comfyui画图”
-        - 明确要求“画个色图”“来张色图”“涩图”
-        - 明确要求使用本插件这一类偏 ComfyUI / 梦羽 的画图能力
-
-        不应触发本工具的场景：
-        - 用户只是泛泛说“画图”“生成图片”，但没有提到 comfyui、色图、涩图等强信号
-        - 用户其实是在要求修改一张已有图片，此时应改用 nova_edit_image
-
-        参数建议：
-        - resolution 支持 portrait、landscape、square、1024 或 WxH，如 1216x832、832x1216
-        - 普通文生图默认模型为 10（wai16）
-        - 如果用户没提负面词，可留空，插件会自动使用默认 negative prompt
-        - 调用成功后图片会自动发送给用户
+        Args:
+            prompt(string): 英文tag形式的文生图提示词。可在末尾附带 model10、model19、1216x832、1216-832 这类模型和分辨率标记；其余默认值如 steps=28、cfg=5、negative_prompt 由插件内部和面板配置处理
         """
         user_id = event.get_sender_id()
         request_id = f"sexdraw_{user_id}"
@@ -527,12 +559,7 @@ class NovaSexDraw(Star):
             result = await self._run_draw_request(
                 event=event,
                 prompt=prompt,
-                negative_prompt=negative_prompt,
-                resolution=resolution,
-                steps=steps,
-                cfg=cfg,
-                model_index=model_index or "10",
-                seed=seed,
+                model_index="10",
             )
             return (
                 f"图片生成完成！\n"
@@ -552,32 +579,14 @@ class NovaSexDraw(Star):
         event: AstrMessageEvent,
         prompt: str,
         use_message_images: bool = True,
-        model_index: str = "19",
         image_source: str = "",
     ):
-        """梦羽 ComfyUI 图片编辑工具。
-
-        当用户发送了图片或引用了图片，并且明确表达以下意图之一时，优先调用本工具：
-        - “用comfyui改一下这张图”
-        - “用comfyui把这张图改成...”
-        - “把这张色图改一下”“把这张图P一下”“把这张图修一下”
-        - 明确要求基于当前图片做修改、换发色、换衣服、换背景、修细节、重绘局部
-
-        获取原图方式：
-        - use_message_images=true（默认）：自动从当前消息或引用消息中提取图片
-        - image_source：如果用户明确给了可访问图片 URL，也可以直接传
-
-        重要提示：
-        - 只要是“用 comfyui 改这张图”这一类表达，默认优先使用 2511，也就是 model_index=19
-        - QQ 临时图片、回复里的图片，优先依靠 use_message_images=true 自动提取
-        - 18/19 都属于纯编辑模型，但默认首选 19
-        - 调用成功后图片会自动发送给用户
+        """ComfyUI 图片编辑工具。仅当用户明确提到用comfyui改图，或修改色图、涩图时调用。edit prompt 可以直接使用中文自然语言。
 
         Args:
-            prompt(string): 修改指令，例如“把头发改成黑发”“背景改成海边黄昏”“换成白色连衣裙”
-            use_message_images(boolean): 是否自动提取当前消息或引用消息中的图片，默认 true
-            model_index(string): 编辑模型索引，默认 19，可选 18 或 19
-            image_source(string): 可直接访问的原图 URL。若为空则尝试自动从消息图片中提取
+            prompt(string): 中文自然语言编辑指令，例如 把头发改成黑发，保持人物脸部、服装和构图不变
+            use_message_images(boolean): 是否自动使用当前消息或引用消息中的图片，默认 true。推荐优先使用这个方式取图
+            image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认模型固定优先使用 19，即 Qwen Image Edit2511版
         """
         user_id = event.get_sender_id()
         request_id = f"sexdraw_{user_id}"
@@ -602,7 +611,7 @@ class NovaSexDraw(Star):
             result = await self._run_draw_request(
                 event=event,
                 prompt=prompt,
-                model_index=model_index or "19",
+                model_index="19",
                 image_source=actual_image_source,
                 force_edit=True,
             )
@@ -615,67 +624,6 @@ class NovaSexDraw(Star):
         except Exception as e:
             logger.error(f"[NovaSexDraw] 主动图编辑失败: {e}")
             return f"编辑图片失败: {str(e)}"
-        finally:
-            self._processing_users.discard(request_id)
-
-    @filter.llm_tool()
-    async def draw_seximage(
-        self,
-        event: AstrMessageEvent,
-        prompt: str,
-        negative_prompt: str = "",
-        resolution: str = "",
-        steps: str = "",
-        cfg: str = "",
-        model_index: str = "",
-        seed: str = "",
-        image_source: str = "",
-    ):
-        """兼容旧版的梦羽绘图工具。
-
-        - 文生图时可直接调用，但更推荐优先使用 nova_draw_image
-        - 图像编辑时如有原图可传 image_source，但更推荐优先使用 nova_edit_image
-        - 如果语义是“用comfyui改一下这张图”，默认应走编辑模型 19
-        - resolution 支持 portrait、landscape、square、1024 或 WxH
-        """
-        user_id = event.get_sender_id()
-        request_id = f"sexdraw_{user_id}"
-
-        if self._check_debounce(user_id):
-            interval = self.config.get("debounce_interval", 15)
-            return f"请等待 {interval} 秒后再试"
-
-        if request_id in self._processing_users:
-            return "您有正在进行的生图任务，请稍候..."
-
-        self._processing_users.add(request_id)
-
-        try:
-            result = await self._run_draw_request(
-                event=event,
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                resolution=resolution,
-                steps=steps,
-                cfg=cfg,
-                model_index=model_index,
-                seed=seed,
-                image_source=image_source,
-            )
-            mode_text = (
-                "图片编辑"
-                if result.get("actual_model") in self.EDIT_MODEL_INDEXES
-                else "图片生成"
-            )
-            return (
-                f"{mode_text}完成！\n"
-                f"- 模型: {result.get('model_name', '未知')}\n"
-                f"- 尺寸: {result.get('width')}x{result.get('height')}\n"
-                f"- 消耗/剩余积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
-            )
-        except Exception as e:
-            logger.error(f"[NovaSexDraw] 生图失败: {e}")
-            return f"生成图片失败: {str(e)}"
         finally:
             self._processing_users.discard(request_id)
 
