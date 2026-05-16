@@ -20,17 +20,16 @@ try {
     usingUndici = false;
 }
 
-// 从命令行参数或环境变量获取配置
 const args = process.argv.slice(2);
 
-// 解析命令行参数
 function parseArgs() {
     const config = {
         url: '',
         method: 'POST',
         apiKey: '',
         proxy: '',
-        data: '{}'
+        data: '{}',
+        responseType: 'auto'
     };
 
     for (let i = 0; i < args.length; i++) {
@@ -38,7 +37,7 @@ function parseArgs() {
             config.url = args[i + 1];
             i++;
         } else if (args[i] === '--method' && args[i + 1]) {
-            config.method = args[i + 1];
+            config.method = args[i + 1].toUpperCase();
             i++;
         } else if (args[i] === '--api-key' && args[i + 1]) {
             config.apiKey = args[i + 1];
@@ -49,10 +48,61 @@ function parseArgs() {
         } else if (args[i] === '--data' && args[i + 1]) {
             config.data = args[i + 1];
             i++;
+        } else if (args[i] === '--response-type' && args[i + 1]) {
+            config.responseType = args[i + 1].toLowerCase();
+            i++;
         }
     }
 
     return config;
+}
+
+async function readResponseBody(response, responseType) {
+    const contentType = response.headers.get('content-type') || '';
+
+    if (responseType === 'base64') {
+        const arrayBuffer = await response.arrayBuffer();
+        return {
+            body: Buffer.from(arrayBuffer).toString('base64'),
+            isJson: false,
+            isBase64: true,
+            contentType
+        };
+    }
+
+    if (responseType === 'text') {
+        return {
+            body: await response.text(),
+            isJson: false,
+            isBase64: false,
+            contentType
+        };
+    }
+
+    if (responseType === 'json') {
+        return {
+            body: await response.json(),
+            isJson: true,
+            isBase64: false,
+            contentType
+        };
+    }
+
+    if (contentType.includes('application/json')) {
+        return {
+            body: await response.json(),
+            isJson: true,
+            isBase64: false,
+            contentType
+        };
+    }
+
+    return {
+        body: await response.text(),
+        isJson: false,
+        isBase64: false,
+        contentType
+    };
 }
 
 async function main() {
@@ -70,7 +120,6 @@ async function main() {
         process.exit(1);
     }
 
-    // 配置代理
     if (config.proxy) {
         if (!usingUndici || !ProxyAgentImpl || !setGlobalDispatcherImpl) {
             console.log(JSON.stringify({
@@ -90,9 +139,11 @@ async function main() {
     }
 
     try {
-        const headers = {
-            'Content-Type': 'application/json'
-        };
+        const headers = {};
+
+        if (config.method === 'POST') {
+            headers['Content-Type'] = 'application/json';
+        }
 
         if (config.apiKey) {
             headers['Authorization'] = `Bearer ${config.apiKey}`;
@@ -108,22 +159,15 @@ async function main() {
         }
 
         const response = await fetchImpl(config.url, fetchOptions);
-
-        const contentType = response.headers.get('content-type') || '';
-        let responseBody;
-
-        if (contentType.includes('application/json')) {
-            responseBody = await response.json();
-        } else {
-            responseBody = await response.text();
-        }
+        const parsed = await readResponseBody(response, config.responseType);
 
         const result = {
             status: response.status,
             statusText: response.statusText,
             headers: Object.fromEntries(response.headers.entries()),
-            body: responseBody,
-            isJson: contentType.includes('application/json'),
+            body: parsed.body,
+            isJson: parsed.isJson,
+            isBase64: parsed.isBase64,
             usingUndici
         };
 

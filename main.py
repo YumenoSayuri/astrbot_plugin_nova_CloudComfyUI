@@ -1,8 +1,9 @@
 """
-Nova SexDraw - 梦羽 AI 绘图插件
+Nova MengyuDraw - 梦羽 AI 绘图插件
 默认通过 Node undici 桥接请求梦羽接口，Python 路径仅保留作兼容/兜底逻辑
 """
 
+import base64
 import json
 import random
 import re
@@ -23,8 +24,8 @@ from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star, StarTools
 
 
-class NovaSexDraw(Star):
-    """Nova SexDraw - 梦羽 AI 绘图接口生成图片"""
+class NovaMengyuDraw(Star):
+    """Nova MengyuDraw - 梦羽 AI 绘图接口生成图片"""
 
     RESOLUTION_PRESETS = {
         "square": "512x512",
@@ -88,13 +89,13 @@ class NovaSexDraw(Star):
         node_modules_undici = self.plugin_dir / "node_modules" / "undici"
 
         if node_modules_undici.exists():
-            logger.info("[NovaSexDraw] 检测到 undici 依赖已存在")
+            logger.info("[NovaMengyuDraw] 检测到 undici 依赖已存在")
             return
 
         if not package_json.exists():
             raise RuntimeError("缺少 package.json，无法自动安装 Node 依赖")
 
-        logger.warning("[NovaSexDraw] 未检测到 undici，开始自动执行 npm install")
+        logger.warning("[NovaMengyuDraw] 未检测到 undici，开始自动执行 npm install")
         result = subprocess.run(
             ["npm", "install"],
             cwd=str(self.plugin_dir),
@@ -113,7 +114,7 @@ class NovaSexDraw(Star):
         if not node_modules_undici.exists():
             raise RuntimeError("npm install 执行完成，但未找到 node_modules/undici")
 
-        logger.info("[NovaSexDraw] Node 依赖安装完成")
+        logger.info("[NovaMengyuDraw] Node 依赖安装完成")
 
     async def initialize(self):
         """初始化插件"""
@@ -134,17 +135,17 @@ class NovaSexDraw(Star):
 
         self._ensure_node_dependencies()
 
-        logger.info(f"[NovaSexDraw] API Base URL: {self._base_url}")
-        logger.info(f"[NovaSexDraw] Proxy: {self._proxy_url or 'disabled'}")
-        logger.info(f"[NovaSexDraw] Undici fallback: {self._enable_undici_fallback}")
-        logger.info("[NovaSexDraw] 插件初始化完成")
+        logger.info(f"[NovaMengyuDraw] API Base URL: {self._base_url}")
+        logger.info(f"[NovaMengyuDraw] Proxy: {self._proxy_url or 'disabled'}")
+        logger.info(f"[NovaMengyuDraw] Undici fallback: {self._enable_undici_fallback}")
+        logger.info("[NovaMengyuDraw] 插件初始化完成")
 
     async def terminate(self):
         """清理资源"""
         if self._client:
             await self._client.aclose()
             self._client = None
-        logger.info("[NovaSexDraw] 插件已终止")
+        logger.info("[NovaMengyuDraw] 插件已终止")
 
     def _parse_resolution(self, resolution: str | None) -> tuple[int, int]:
         """解析分辨率字符串，返回 width, height"""
@@ -288,7 +289,7 @@ class NovaSexDraw(Star):
         headers: dict[str, str],
     ) -> dict[str, Any]:
         url = f"{self._base_url}/api/v1/generate_image"
-        logger.info(f"[NovaSexDraw] HTTPX 请求梦羽接口: {url}")
+        logger.info(f"[NovaMengyuDraw] HTTPX 请求梦羽接口: {url}")
 
         try:
             response = await self._client.post(url, headers=headers, json=payload)
@@ -338,7 +339,7 @@ class NovaSexDraw(Star):
         if self._proxy_url:
             command.extend(["--proxy", self._proxy_url])
 
-        logger.info("[NovaSexDraw] 使用 undici 桥接请求梦羽接口")
+        logger.info("[NovaMengyuDraw] 使用 undici 桥接请求梦羽接口")
         result = subprocess.run(
             command,
             cwd=str(self.plugin_dir),
@@ -414,7 +415,7 @@ class NovaSexDraw(Star):
             "Content-Type": "application/json",
         }
 
-        logger.debug(f"[NovaSexDraw] 请求体: {json.dumps(payload, ensure_ascii=False)}")
+        logger.debug(f"[NovaMengyuDraw] 请求体: {json.dumps(payload, ensure_ascii=False)}")
 
         result = await self._call_generate_api_undici(payload)
 
@@ -447,26 +448,111 @@ class NovaSexDraw(Star):
                 if isinstance(seg, AstrImageComponent) and getattr(seg, "url", ""):
                     return seg.url
         except Exception as e:
-            logger.warning(f"[NovaSexDraw] 提取消息图片失败: {e}")
+            logger.warning(f"[NovaMengyuDraw] 提取消息图片失败: {e}")
         return ""
 
-    async def _download_image(self, image_url: str) -> Path:
-        logger.info(f"[NovaSexDraw] 下载图片: {image_url[:120]}...")
+    def _guess_file_extension(self, content_type: str) -> str:
+        ext = (content_type or "image/jpeg").split("/")[-1].split(";")[0].lower()
+        if ext == "svg+xml":
+            ext = "svg"
+        if ext not in ("png", "jpg", "jpeg", "webp", "gif", "bmp", "svg"):
+            ext = "jpg"
+        return ext
+
+    def _save_downloaded_bytes(self, content: bytes, content_type: str) -> Path:
+        ext = self._guess_file_extension(content_type)
+        filename = f"{uuid.uuid4()}.{ext}"
+        filepath = self.image_dir / filename
+        filepath.write_bytes(content)
+        logger.info(f"[NovaMengyuDraw] 图片已保存: {filepath}")
+        return filepath
+
+    async def _download_image_via_undici(self, image_url: str) -> Path:
+        bridge_path = self.plugin_dir / "undici_bridge.mjs"
+        if not bridge_path.exists():
+            raise RuntimeError("undici_bridge.mjs 不存在，无法使用 Node 下载桥接")
+
+        command = [
+            "node",
+            str(bridge_path),
+            "--url",
+            image_url,
+            "--method",
+            "GET",
+            "--response-type",
+            "base64",
+        ]
+
+        if self._proxy_url:
+            command.extend(["--proxy", self._proxy_url])
+
+        logger.info(f"[NovaMengyuDraw] 使用 undici 桥接下载图片: {image_url[:120]}...")
+        result = subprocess.run(
+            command,
+            cwd=str(self.plugin_dir),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=int(self.config.get("timeout", 180)) + 10,
+            check=False,
+        )
+
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+        if result.returncode != 0:
+            raise RuntimeError(f"undici 下载桥接执行失败: {stderr or stdout or '未知错误'}")
+
+        try:
+            bridge_result = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"undici 下载桥接响应解析失败: {stdout[:500]}") from exc
+
+        if "error" in bridge_result:
+            raise RuntimeError(f"undici 下载桥接错误: {bridge_result.get('error')}")
+
+        status_code = int(bridge_result.get("status", 0) or 0)
+        if status_code != 200:
+            raise RuntimeError(f"undici 下载图片失败: HTTP {status_code}")
+
+        body_base64 = bridge_result.get("body") or ""
+        if not isinstance(body_base64, str) or not body_base64:
+            raise RuntimeError("undici 下载桥接返回的图片内容为空")
+
+        try:
+            content = base64.b64decode(body_base64)
+        except Exception as exc:
+            raise RuntimeError("undici 下载桥接返回的 base64 数据无效") from exc
+
+        headers = bridge_result.get("headers") or {}
+        content_type = headers.get("content-type", "image/jpeg")
+        return self._save_downloaded_bytes(content, content_type)
+
+    async def _download_image_via_httpx(self, image_url: str) -> Path:
+        logger.info(f"[NovaMengyuDraw] 使用 HTTPX 下载图片: {image_url[:120]}...")
         response = await self._client.get(image_url)
 
         if response.status_code != 200:
             raise RuntimeError(f"下载图片失败: HTTP {response.status_code}")
 
         content_type = response.headers.get("content-type", "image/jpeg")
-        ext = content_type.split("/")[-1].split(";")[0].lower()
-        if ext not in ("png", "jpg", "jpeg", "webp", "gif"):
-            ext = "jpg"
+        return self._save_downloaded_bytes(response.content, content_type)
 
-        filename = f"{uuid.uuid4()}.{ext}"
-        filepath = self.image_dir / filename
-        filepath.write_bytes(response.content)
-        logger.info(f"[NovaSexDraw] 图片已保存: {filepath}")
-        return filepath
+    async def _download_image(self, image_url: str) -> Path:
+        logger.info(f"[NovaMengyuDraw] 下载图片: {image_url[:120]}...")
+        undici_error: Exception | None = None
+
+        try:
+            return await self._download_image_via_undici(image_url)
+        except Exception as e:
+            undici_error = e
+            logger.warning(f"[NovaMengyuDraw] undici 下载失败，回退 HTTPX: {e}")
+
+        try:
+            return await self._download_image_via_httpx(image_url)
+        except Exception as e:
+            if undici_error is not None:
+                raise RuntimeError(f"下载图片失败，undici={undici_error}; httpx={e}") from e
+            raise
 
     def _extract_model_token(self, text: str) -> tuple[str, str]:
         match = re.search(r"\bmodel\s*(\d{1,2})\b", text, re.IGNORECASE)
@@ -475,7 +561,7 @@ class NovaSexDraw(Star):
         model_index = match.group(1)
         cleaned = re.sub(r"\bmodel\s*\d{1,2}\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaSexDraw] 从 prompt 中提取模型标记: model{model_index} -> 清洗后 prompt: {cleaned}"
+            f"[NovaMengyuDraw] 从 prompt 中提取模型标记: model{model_index} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, model_index
 
@@ -488,7 +574,7 @@ class NovaSexDraw(Star):
         suffix_lower = suffix.lower()
         if suffix_lower in self.RESOLUTION_PRESETS or re.match(r"\d+\s*[x×*X-]\s*\d+", suffix_lower):
             logger.info(
-                f"[NovaSexDraw] 从 prompt 中提取分辨率标记: {suffix_lower} -> 清洗后 prompt: {possible_prompt.strip()}"
+                f"[NovaMengyuDraw] 从 prompt 中提取分辨率标记: {suffix_lower} -> 清洗后 prompt: {possible_prompt.strip()}"
             )
             return possible_prompt.strip(), suffix_lower
         return text.strip(), ""
@@ -500,7 +586,7 @@ class NovaSexDraw(Star):
         cfg_value = match.group(1)
         cleaned = re.sub(r"\bcfg\s*[0-9]+(?:\.[0-9]+)?\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaSexDraw] 从 prompt 中提取 CFG 标记: cfg{cfg_value} -> 清洗后 prompt: {cleaned}"
+            f"[NovaMengyuDraw] 从 prompt 中提取 CFG 标记: cfg{cfg_value} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, cfg_value
 
@@ -511,7 +597,7 @@ class NovaSexDraw(Star):
         steps_value = match.group(1)
         cleaned = re.sub(r"\bsteps\s*\d{1,3}\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaSexDraw] 从 prompt 中提取步数标记: steps{steps_value} -> 清洗后 prompt: {cleaned}"
+            f"[NovaMengyuDraw] 从 prompt 中提取步数标记: steps{steps_value} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, steps_value
 
@@ -522,7 +608,7 @@ class NovaSexDraw(Star):
         seed_value = match.group(1)
         cleaned = re.sub(r"\bseed\s*\d{1,10}\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaSexDraw] 从 prompt 中提取种子标记: seed{seed_value} -> 清洗后 prompt: {cleaned}"
+            f"[NovaMengyuDraw] 从 prompt 中提取种子标记: seed{seed_value} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, seed_value
 
@@ -588,13 +674,13 @@ class NovaSexDraw(Star):
         prompt_text = self._inject_quality_tags(prompt_text, actual_model)
 
         logger.info(
-            f"[NovaSexDraw] prompt 解析结果: raw_prompt={raw_prompt_text!r}, "
+            f"[NovaMengyuDraw] prompt 解析结果: raw_prompt={raw_prompt_text!r}, "
             f"clean_prompt={prompt_text!r}, extracted_model={extracted_model or 'none'}, "
             f"extracted_cfg={extracted_cfg or 'none'}, extracted_steps={extracted_steps or 'none'}, "
             f"extracted_seed={extracted_seed or 'none'}, extracted_resolution={extracted_resolution or 'none'}"
         )
         logger.info(
-            f"[NovaSexDraw] 实际请求参数: model={actual_model}, size={width}x{height}, "
+            f"[NovaMengyuDraw] 实际请求参数: model={actual_model}, size={width}x{height}, "
             f"steps={actual_steps}, cfg={actual_cfg}, seed={actual_seed}"
         )
 
@@ -636,7 +722,7 @@ class NovaSexDraw(Star):
             prompt(string): 英文tag形式的文生图提示词。可在末尾附带 model10、model19、1216x832、1216-832 这类模型和分辨率标记；其余默认值如 steps=28、cfg=5、negative_prompt 由插件内部和面板配置处理
         """
         user_id = event.get_sender_id()
-        request_id = f"sexdraw_{user_id}"
+        request_id = f"mengyudraw_{user_id}"
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
@@ -648,6 +734,7 @@ class NovaSexDraw(Star):
         self._processing_users.add(request_id)
 
         try:
+            await event.send(event.plain_result("正在使用comfyui画图，请稍后..."))
             result = await self._run_draw_request(
                 event=event,
                 prompt=prompt,
@@ -661,7 +748,7 @@ class NovaSexDraw(Star):
                 f"- Seed: {result.get('actual_seed', '?')}"
             )
         except Exception as e:
-            logger.error(f"[NovaSexDraw] 主动文生图失败: {e}")
+            logger.error(f"[NovaMengyuDraw] 主动文生图失败: {e}")
             return f"生成图片失败: {str(e)}"
         finally:
             self._processing_users.discard(request_id)
@@ -682,7 +769,7 @@ class NovaSexDraw(Star):
             image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认模型固定优先使用 19，即 Qwen Image Edit2511版
         """
         user_id = event.get_sender_id()
-        request_id = f"sexdraw_{user_id}"
+        request_id = f"mengyudraw_{user_id}"
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
@@ -694,6 +781,7 @@ class NovaSexDraw(Star):
         self._processing_users.add(request_id)
 
         try:
+            await event.send(event.plain_result("正在使用comfyui画图，请稍后..."))
             actual_image_source = image_source.strip()
             if use_message_images and not actual_image_source:
                 actual_image_source = await self._extract_image_url_from_event(event)
@@ -716,20 +804,20 @@ class NovaSexDraw(Star):
                 f"- Seed: {result.get('actual_seed', '?')}"
             )
         except Exception as e:
-            logger.error(f"[NovaSexDraw] 主动图编辑失败: {e}")
+            logger.error(f"[NovaMengyuDraw] 主动图编辑失败: {e}")
             return f"编辑图片失败: {str(e)}"
         finally:
             self._processing_users.discard(request_id)
 
-    @filter.command("sexdraw", alias={"色图", "涩图", "画图"})
-    async def sexdraw_command(self, event: AstrMessageEvent):
+    @filter.command("mengyudraw", alias={"色图", "涩图", "画图"})
+    async def mengyudraw_command(self, event: AstrMessageEvent):
         """生成图片指令
 
         用法示例：
-        - /sexdraw 1girl, silver hair, red eyes portrait
-        - /sexdraw 1girl, city night 1216x832
-        - /sexdraw 把这张图头发改成黑发 model19
-        - /sexdraw 把这张图背景改成海边 model18 --image_source=https://example.com/a.png
+        - /mengyudraw 1girl, silver hair, red eyes portrait
+        - /mengyudraw 1girl, city night 1216x832
+        - /mengyudraw 把这张图头发改成黑发 model19
+        - /mengyudraw 把这张图背景改成海边 model18 --image_source=https://example.com/a.png
 
         说明：
         - 直接在 prompt 里写 model8、model10、model18、model19 这类模型标记即可，插件会自动提取并删除
@@ -740,9 +828,9 @@ class NovaSexDraw(Star):
         if not arg:
             yield event.plain_result(
                 "请提供提示词！\n"
-                "用法: /sexdraw <提示词> [分辨率]\n"
-                "示例1: /sexdraw 1girl, silver hair portrait\n"
-                "示例2: /sexdraw make hair black model18 --image_source=https://example.com/a.jpg"
+                "用法: /mengyudraw <提示词> [分辨率]\n"
+                "示例1: /mengyudraw 1girl, silver hair portrait\n"
+                "示例2: /mengyudraw make hair black model18 --image_source=https://example.com/a.jpg"
             ).stop_event()
             return
 
@@ -773,7 +861,7 @@ class NovaSexDraw(Star):
             prompt = arg
 
         user_id = event.get_sender_id()
-        request_id = f"sexdraw_{user_id}"
+        request_id = f"mengyudraw_{user_id}"
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
@@ -787,6 +875,7 @@ class NovaSexDraw(Star):
         self._processing_users.add(request_id)
 
         try:
+            await event.send(event.plain_result("正在使用comfyui画图，请稍后..."))
             actual_model = explicit_model if explicit_model is not None else self._normalize_model_index(None)
 
             result = await self._run_draw_request(
@@ -801,7 +890,7 @@ class NovaSexDraw(Star):
 
             image_path = result.get("image_path", "")
             logger.info(
-                f"[NovaSexDraw] 指令生图成功: model={result.get('model_name', '未知')}, "
+                f"[NovaMengyuDraw] 指令生图成功: model={result.get('model_name', '未知')}, "
                 f"size={result.get('width')}x{result.get('height')}, "
                 f"points={result.get('points_used', '?')}/{result.get('remaining_points', '?')}, "
                 f"seed={result.get('actual_seed', '?')}, image_path={image_path}"
@@ -812,7 +901,7 @@ class NovaSexDraw(Star):
                 yield event.plain_result("生成成功，但图片文件路径为空").stop_event()
 
         except Exception as e:
-            logger.error(f"[NovaSexDraw] 指令生图失败: {repr(e)}")
+            logger.error(f"[NovaMengyuDraw] 指令生图失败: {repr(e)}")
             yield event.plain_result(f"生成图片失败: {repr(e)}").stop_event()
 
         finally:

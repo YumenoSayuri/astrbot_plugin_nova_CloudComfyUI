@@ -13,7 +13,7 @@ export default {
       return jsonResponse(
         {
           success: true,
-          service: "nova-sexdraw-cf-worker-proxy",
+          service: "nova-mengyudraw-cf-worker-proxy",
           upstream: "https://sd.exacg.cc",
         },
         200,
@@ -50,7 +50,7 @@ export default {
         headers: {
           "Authorization": authHeader,
           "Content-Type": contentType,
-          "User-Agent": "Mozilla/5.0 (compatible; NovaSexDrawWorker/1.0)",
+          "User-Agent": "Mozilla/5.0 (compatible; NovaMengyuDrawWorker/1.3.0)",
           "Accept": "application/json, text/plain, */*",
         },
         body: rawBody,

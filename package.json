@@ -1,13 +1,19 @@
 {
-  "name": "astrbot_plugin_nova_sexdraw",
-  "version": "1.0.0",
-  "description": "直连梦羽 AI 绘图接口 `https://sd.exacg.cc/api/v1/generate_image` 的 AstrBot 插件。",
+  "name": "astrbot_plugin_nova_mengyudraw",
+  "version": "1.3.0",
+  "description": "通过 Node undici 桥接请求与下载梦羽 AI 绘图结果的 AstrBot 插件。",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"No npm test specified for this plugin\""
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "astrbot",
+    "mengyu",
+    "draw",
+    "undici",
+    "worker"
+  ],
+  "author": "辉宝",
   "license": "ISC",
   "dependencies": {
     "undici": "^8.2.0"
