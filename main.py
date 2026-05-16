@@ -474,6 +474,9 @@ class NovaSexDraw(Star):
             return text.strip(), ""
         model_index = match.group(1)
         cleaned = re.sub(r"\bmodel\s*\d{1,2}\b", "", text, flags=re.IGNORECASE).strip()
+        logger.info(
+            f"[NovaSexDraw] 从 prompt 中提取模型标记: model{model_index} -> 清洗后 prompt: {cleaned}"
+        )
         return cleaned, model_index
 
     def _extract_resolution_token(self, text: str) -> tuple[str, str]:
@@ -484,8 +487,44 @@ class NovaSexDraw(Star):
         possible_prompt, suffix = parts
         suffix_lower = suffix.lower()
         if suffix_lower in self.RESOLUTION_PRESETS or re.match(r"\d+\s*[x×*X-]\s*\d+", suffix_lower):
+            logger.info(
+                f"[NovaSexDraw] 从 prompt 中提取分辨率标记: {suffix_lower} -> 清洗后 prompt: {possible_prompt.strip()}"
+            )
             return possible_prompt.strip(), suffix_lower
         return text.strip(), ""
+
+    def _extract_cfg_token(self, text: str) -> tuple[str, str]:
+        match = re.search(r"\bcfg\s*([0-9]+(?:\.[0-9]+)?)\b", text, re.IGNORECASE)
+        if not match:
+            return text.strip(), ""
+        cfg_value = match.group(1)
+        cleaned = re.sub(r"\bcfg\s*[0-9]+(?:\.[0-9]+)?\b", "", text, flags=re.IGNORECASE).strip()
+        logger.info(
+            f"[NovaSexDraw] 从 prompt 中提取 CFG 标记: cfg{cfg_value} -> 清洗后 prompt: {cleaned}"
+        )
+        return cleaned, cfg_value
+
+    def _extract_steps_token(self, text: str) -> tuple[str, str]:
+        match = re.search(r"\bsteps\s*(\d{1,3})\b", text, re.IGNORECASE)
+        if not match:
+            return text.strip(), ""
+        steps_value = match.group(1)
+        cleaned = re.sub(r"\bsteps\s*\d{1,3}\b", "", text, flags=re.IGNORECASE).strip()
+        logger.info(
+            f"[NovaSexDraw] 从 prompt 中提取步数标记: steps{steps_value} -> 清洗后 prompt: {cleaned}"
+        )
+        return cleaned, steps_value
+
+    def _extract_seed_token(self, text: str) -> tuple[str, str]:
+        match = re.search(r"\bseed\s*(\d{1,10})\b", text, re.IGNORECASE)
+        if not match:
+            return text.strip(), ""
+        seed_value = match.group(1)
+        cleaned = re.sub(r"\bseed\s*\d{1,10}\b", "", text, flags=re.IGNORECASE).strip()
+        logger.info(
+            f"[NovaSexDraw] 从 prompt 中提取种子标记: seed{seed_value} -> 清洗后 prompt: {cleaned}"
+        )
+        return cleaned, seed_value
 
     def _inject_quality_tags(self, prompt: str, model_index: int) -> str:
         if model_index in self.EDIT_MODEL_INDEXES:
@@ -519,20 +558,27 @@ class NovaSexDraw(Star):
             raise RuntimeError("请提供 prompt 提示词")
 
         prompt_text = prompt.strip()
+        raw_prompt_text = prompt_text
         prompt_text, extracted_model = self._extract_model_token(prompt_text)
+        prompt_text, extracted_cfg = self._extract_cfg_token(prompt_text)
+        prompt_text, extracted_steps = self._extract_steps_token(prompt_text)
+        prompt_text, extracted_seed = self._extract_seed_token(prompt_text)
         prompt_text, extracted_resolution = self._extract_resolution_token(prompt_text)
 
         actual_model_input = model_index or extracted_model
         actual_resolution = resolution or extracted_resolution
+        actual_cfg_input = cfg or extracted_cfg
+        actual_steps_input = steps or extracted_steps
+        actual_seed_input = seed or extracted_seed
 
         actual_model = self._normalize_model_index(actual_model_input)
         if force_edit and actual_model not in self.EDIT_MODEL_INDEXES:
             actual_model = 19
 
         width, height = self._parse_resolution(actual_resolution or None)
-        actual_steps = self._normalize_steps(steps, actual_model)
-        actual_cfg = self._normalize_cfg(cfg, actual_model)
-        actual_seed = self._normalize_seed(seed, actual_model)
+        actual_steps = self._normalize_steps(actual_steps_input, actual_model)
+        actual_cfg = self._normalize_cfg(actual_cfg_input, actual_model)
+        actual_seed = self._normalize_seed(actual_seed_input, actual_model)
         actual_neg = negative_prompt or self.config.get("default_negative_prompt", "")
         actual_image_source = image_source.strip()
 
@@ -541,6 +587,12 @@ class NovaSexDraw(Star):
 
         prompt_text = self._inject_quality_tags(prompt_text, actual_model)
 
+        logger.info(
+            f"[NovaSexDraw] prompt 解析结果: raw_prompt={raw_prompt_text!r}, "
+            f"clean_prompt={prompt_text!r}, extracted_model={extracted_model or 'none'}, "
+            f"extracted_cfg={extracted_cfg or 'none'}, extracted_steps={extracted_steps or 'none'}, "
+            f"extracted_seed={extracted_seed or 'none'}, extracted_resolution={extracted_resolution or 'none'}"
+        )
         logger.info(
             f"[NovaSexDraw] 实际请求参数: model={actual_model}, size={width}x{height}, "
             f"steps={actual_steps}, cfg={actual_cfg}, seed={actual_seed}"
@@ -676,10 +728,11 @@ class NovaSexDraw(Star):
         用法示例：
         - /sexdraw 1girl, silver hair, red eyes portrait
         - /sexdraw 1girl, city night 1216x832
-        - /sexdraw 把这张图头发改成黑发 --model=19
-        - /sexdraw 把这张图背景改成海边 --model=18 --image_source=https://example.com/a.png
+        - /sexdraw 把这张图头发改成黑发 model19
+        - /sexdraw 把这张图背景改成海边 model18 --image_source=https://example.com/a.png
 
         说明：
+        - 直接在 prompt 里写 model8、model10、model18、model19 这类模型标记即可，插件会自动提取并删除
         - 直接在提示词最后写分辨率即可，如 portrait、landscape、square、1024、1216x832
         - 如果消息里带图，且模型是 18/19，插件会自动提取该图 URL 作为 image_source
         """
@@ -689,7 +742,7 @@ class NovaSexDraw(Star):
                 "请提供提示词！\n"
                 "用法: /sexdraw <提示词> [分辨率]\n"
                 "示例1: /sexdraw 1girl, silver hair portrait\n"
-                "示例2: /sexdraw make hair black --model=18 --image_source=https://example.com/a.jpg"
+                "示例2: /sexdraw make hair black model18 --image_source=https://example.com/a.jpg"
             ).stop_event()
             return
 
@@ -747,18 +800,20 @@ class NovaSexDraw(Star):
             )
 
             image_path = result.get("image_path", "")
+            logger.info(
+                f"[NovaSexDraw] 指令生图成功: model={result.get('model_name', '未知')}, "
+                f"size={result.get('width')}x{result.get('height')}, "
+                f"points={result.get('points_used', '?')}/{result.get('remaining_points', '?')}, "
+                f"seed={result.get('actual_seed', '?')}, image_path={image_path}"
+            )
             if image_path:
                 yield event.chain_result([Image.fromFileSystem(str(image_path))]).stop_event()
-            yield event.plain_result(
-                f"生成完成：{result.get('model_name', '未知')} | "
-                f"{result.get('width')}x{result.get('height')} | "
-                f"消耗/剩余积分 {result.get('points_used', '?')}/{result.get('remaining_points', '?')} | "
-                f"Seed {result.get('actual_seed', '?')}"
-            ).stop_event()
+            else:
+                yield event.plain_result("生成成功，但图片文件路径为空").stop_event()
 
         except Exception as e:
-            logger.error(f"[NovaSexDraw] 指令生图失败: {e}")
-            yield event.plain_result(f"生成图片失败: {str(e)}").stop_event()
+            logger.error(f"[NovaSexDraw] 指令生图失败: {repr(e)}")
+            yield event.plain_result(f"生成图片失败: {repr(e)}").stop_event()
 
         finally:
             self._processing_users.discard(request_id)
