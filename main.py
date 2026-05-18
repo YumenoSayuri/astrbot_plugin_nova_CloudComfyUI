@@ -651,7 +651,7 @@ class NovaMengyuDraw(Star):
         prompt_text, extracted_seed = self._extract_seed_token(prompt_text)
         prompt_text, extracted_resolution = self._extract_resolution_token(prompt_text)
 
-        actual_model_input = model_index or extracted_model
+        actual_model_input = extracted_model or model_index
         actual_resolution = resolution or extracted_resolution
         actual_cfg_input = cfg or extracted_cfg
         actual_steps_input = steps or extracted_steps
@@ -738,7 +738,6 @@ class NovaMengyuDraw(Star):
             result = await self._run_draw_request(
                 event=event,
                 prompt=prompt,
-                model_index="10",
             )
             return (
                 f"图片生成完成！\n"
