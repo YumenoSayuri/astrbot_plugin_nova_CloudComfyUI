@@ -765,18 +765,26 @@ class NovaMengyuDraw(Star):
         if actual_model in self.EDIT_MODEL_INDEXES and not actual_image_source:
             actual_image_source = await self._extract_image_url_from_event(event)
 
+        auto_shrink_edit_resolution = bool(self.config.get("auto_shrink_edit_resolution", True))
+        auto_enlarge_edit_resolution = bool(self.config.get("auto_enlarge_edit_resolution", False))
         if actual_model in self.EDIT_MODEL_INDEXES and not actual_resolution and actual_image_source:
             try:
                 source_path = await self._download_image(actual_image_source)
                 src_width, src_height = self._read_image_size(source_path)
                 if src_width > 0 and src_height > 0:
-                    width, height = self._scale_edit_image_to_limit(src_width, src_height)
-                    actual_resolution = f"{width}x{height}"
-                    logger.info(
-                        f"[NovaMengyuDraw] 编辑模型未指定分辨率，按原图比例自动缩放到单边不超过"
-                        f"{self.AUTO_EDIT_TARGET_MAX_SIDE}: source={src_width}x{src_height}, "
-                        f"target={width}x{height}"
-                    )
+                    longest_side = max(src_width, src_height)
+                    should_shrink = longest_side > self.AUTO_EDIT_TARGET_MAX_SIDE and auto_shrink_edit_resolution
+                    should_enlarge = longest_side < self.AUTO_EDIT_TARGET_MAX_SIDE and auto_enlarge_edit_resolution
+                    if should_shrink or should_enlarge:
+                        width, height = self._scale_edit_image_to_limit(src_width, src_height)
+                        actual_resolution = f"{width}x{height}"
+                        action = "缩小" if should_shrink else "放大"
+                        logger.info(
+                            f"[NovaMengyuDraw] 编辑模型未指定分辨率，已按面板开关自动等比{action}到单边不超过"
+                            f"{self.AUTO_EDIT_TARGET_MAX_SIDE}: source={src_width}x{src_height}, "
+                            f"target={width}x{height}, shrink={auto_shrink_edit_resolution}, "
+                            f"enlarge={auto_enlarge_edit_resolution}"
+                        )
             except Exception as e:
                 logger.warning(f"[NovaMengyuDraw] 读取原图尺寸失败，回退默认编辑分辨率: {e}")
 

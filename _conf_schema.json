@@ -23,6 +23,18 @@
         "type": "bool",
         "default": true
     },
+    "auto_shrink_edit_resolution": {
+        "description": "编辑模型自动缩小超限原图",
+        "hint": "开启后，当编辑模型且未手动指定分辨率时，如果原图单边超过 1980，则按原图宽高比自动缩小到单边不超过 1980",
+        "type": "bool",
+        "default": true
+    },
+    "auto_enlarge_edit_resolution": {
+        "description": "编辑模型自动放大小图",
+        "hint": "开启后，当编辑模型且未手动指定分辨率时，如果原图单边小于 1980，则按原图宽高比自动放大到尽量接近 1980；关闭后小图保持默认分辨率或手动指定分辨率",
+        "type": "bool",
+        "default": false
+    },
     "default_resolution": {
         "description": "默认生成图片分辨率",
         "hint": "格式: 宽x高，如 512x768, 768x512。或使用预设: portrait, landscape, square, 1024",
