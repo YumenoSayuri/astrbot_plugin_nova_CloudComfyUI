@@ -785,6 +785,14 @@ class NovaMengyuDraw(Star):
                             f"target={width}x{height}, shrink={auto_shrink_edit_resolution}, "
                             f"enlarge={auto_enlarge_edit_resolution}"
                         )
+                    else:
+                        width, height = src_width, src_height
+                        actual_resolution = f"{width}x{height}"
+                        logger.info(
+                            f"[NovaMengyuDraw] 编辑模型未指定分辨率，未触发自动缩放，直接使用原图分辨率: "
+                            f"source={src_width}x{src_height}, shrink={auto_shrink_edit_resolution}, "
+                            f"enlarge={auto_enlarge_edit_resolution}"
+                        )
             except Exception as e:
                 logger.warning(f"[NovaMengyuDraw] 读取原图尺寸失败，回退默认编辑分辨率: {e}")
 
