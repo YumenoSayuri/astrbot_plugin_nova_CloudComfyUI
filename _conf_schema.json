@@ -53,11 +53,11 @@
     },
     "default_model_index": {
         "description": "默认模型索引",
-        "hint": "参考 README 中的模型表。推荐默认使用 10（wai16）；18/19 为图片编辑模型，20-22 为视频模型（当前插件暂不支持）",
+        "hint": "参考 README 中的模型表。推荐默认使用 10（wai16）；14 为默认图片编辑模型。当前插件版本不支持视频模型。",
         "type": "int",
         "slider": {
             "min": 0,
-            "max": 22,
+            "max": 14,
             "step": 1
         },
         "default": 10

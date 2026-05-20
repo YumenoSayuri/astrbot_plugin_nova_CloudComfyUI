@@ -7,6 +7,7 @@ import base64
 import json
 import random
 import re
+import struct
 import subprocess
 import time
 import uuid
@@ -42,31 +43,24 @@ class NovaMengyuDraw(Star):
         4: "[全新模型]one_obsession",
         5: "[全新模型]MiaoMiao RealSkin EPS 1.3",
         6: "[全新模型]Newbie exp 0.1",
-        7: "[全新模型-服务器2]Newbie exp 0.1",
-        8: "[全新模型]MiaoMiao RealSkin vPred 1.1",
-        9: "[新服开放]MiaoMiao RealSkin vPred 1.0",
+        7: "[全新模型]MiaoMiao RealSkin vPred 1.1",
+        8: "[新服开放]MiaoMiao RealSkin vPred 1.0",
+        9: "[全新模型]Wainsfw illustrious v17",
         10: "[全新模型]Wainsfw illustrious v16",
         11: "[新服开放]Wainsfw illustrious v15",
         12: "[新服开放]MiaoMiao Harem 1.75",
         13: "[新服开放]MiaoMiao Harem 1.6G",
-        14: "(testa)服务器1 Wainsfw Illustrious v13",
-        15: "[维护]服务器2 Wainsfw Illustrious v13",
-        16: "[维护]Wainsfw Illustrious v11",
-        17: "(testa)真人模型Nsfw-Real",
-        18: "Qwen Image Edit版",
-        19: "Qwen Image Edit2511版",
-        20: "视频生成模型服务器1 wan2.1-14B-fast(3秒视频)",
-        21: "视频生成模型服务器2 wan2.2-14B-fast(5秒视频)(NSFW Lora)",
-        22: "[新年贺庆版]视频生成模型服务器3 rpwan2.2-14B-fast(5秒视频)",
+        14: "Qwen Image Edit2511版",
     }
 
-    EDIT_MODEL_INDEXES = {18, 19}
-    VIDEO_MODEL_INDEXES = {20, 21, 22}
+    EDIT_MODEL_INDEXES = {14}
+    VIDEO_MODEL_INDEXES = set()
     QUALITY_PROMPT_TAGS = [
         "masterpiece",
         "best quality",
         "high quality",
     ]
+    AUTO_EDIT_TARGET_MAX_SIDE = 1980
 
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
@@ -261,6 +255,8 @@ class NovaMengyuDraw(Star):
                 "prompt": prompt,
                 "model_index": model_index,
                 "image_source": image_source,
+                "width": width,
+                "height": height,
             }
 
         return {
@@ -459,6 +455,65 @@ class NovaMengyuDraw(Star):
             ext = "jpg"
         return ext
 
+    def _read_image_size(self, filepath: Path) -> tuple[int, int]:
+        data = filepath.read_bytes()
+
+        if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n":
+            width = int.from_bytes(data[16:20], "big")
+            height = int.from_bytes(data[20:24], "big")
+            return width, height
+
+        if len(data) >= 10 and data[:6] in (b"GIF87a", b"GIF89a"):
+            width = int.from_bytes(data[6:8], "little")
+            height = int.from_bytes(data[8:10], "little")
+            return width, height
+
+        if len(data) >= 30 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+            chunk_type = data[12:16]
+            if chunk_type == b"VP8X" and len(data) >= 30:
+                width = 1 + int.from_bytes(data[24:27], "little")
+                height = 1 + int.from_bytes(data[27:30], "little")
+                return width, height
+            if chunk_type == b"VP8 " and len(data) >= 30:
+                start = data.find(b"\x9d\x01\x2a")
+                if start != -1 and start + 7 < len(data):
+                    width = int.from_bytes(data[start + 3:start + 5], "little") & 0x3FFF
+                    height = int.from_bytes(data[start + 5:start + 7], "little") & 0x3FFF
+                    return width, height
+            if chunk_type == b"VP8L" and len(data) >= 25:
+                b0, b1, b2, b3 = data[21:25]
+                width = 1 + (((b1 & 0x3F) << 8) | b0)
+                height = 1 + (((b3 & 0x0F) << 10) | (b2 << 2) | ((b1 & 0xC0) >> 6))
+                return width, height
+
+        if len(data) >= 4 and data[:2] == b"\xff\xd8":
+            offset = 2
+            while offset + 9 < len(data):
+                if data[offset] != 0xFF:
+                    offset += 1
+                    continue
+                marker = data[offset + 1]
+                offset += 2
+                if marker in (0xD8, 0xD9):
+                    continue
+                if offset + 2 > len(data):
+                    break
+                block_size = int.from_bytes(data[offset:offset + 2], "big")
+                if block_size < 2 or offset + block_size > len(data):
+                    break
+                if marker in {
+                    0xC0, 0xC1, 0xC2, 0xC3,
+                    0xC5, 0xC6, 0xC7,
+                    0xC9, 0xCA, 0xCB,
+                    0xCD, 0xCE, 0xCF,
+                }:
+                    height = int.from_bytes(data[offset + 3:offset + 5], "big")
+                    width = int.from_bytes(data[offset + 5:offset + 7], "big")
+                    return width, height
+                offset += block_size
+
+        return 0, 0
+
     def _save_downloaded_bytes(self, content: bytes, content_type: str) -> Path:
         ext = self._guess_file_extension(content_type)
         filename = f"{uuid.uuid4()}.{ext}"
@@ -625,6 +680,45 @@ class NovaMengyuDraw(Star):
 
         return ", ".join(final_tags)
 
+    def _scale_edit_image_to_limit(self, width: int, height: int) -> tuple[int, int]:
+        if width <= 0 or height <= 0:
+            return width, height
+
+        max_side_limit = self.AUTO_EDIT_TARGET_MAX_SIDE
+        longest_side = max(width, height)
+        if longest_side <= 0:
+            return width, height
+
+        scale = max_side_limit / longest_side
+        target_width = width * scale
+        target_height = height * scale
+
+        width_candidates = {
+            max(64, min(max_side_limit, int(target_width))),
+            max(64, min(max_side_limit, int(target_width + 0.999999))),
+        }
+        height_candidates = {
+            max(64, min(max_side_limit, int(target_height))),
+            max(64, min(max_side_limit, int(target_height + 0.999999))),
+        }
+
+        source_ratio = width / height
+        best = None
+        best_score = None
+
+        for cand_width in width_candidates:
+            for cand_height in height_candidates:
+                if cand_width > max_side_limit or cand_height > max_side_limit:
+                    continue
+                ratio_diff = abs((cand_width / cand_height) - source_ratio)
+                side_diff = abs(max(cand_width, cand_height) - max_side_limit)
+                score = (round(ratio_diff, 12), side_diff, -cand_width * cand_height)
+                if best is None or score < best_score:
+                    best = (cand_width, cand_height)
+                    best_score = score
+
+        return best or (max(64, min(max_side_limit, int(target_width))), max(64, min(max_side_limit, int(target_height))))
+
     async def _run_draw_request(
         self,
         event: AstrMessageEvent,
@@ -659,7 +753,7 @@ class NovaMengyuDraw(Star):
 
         actual_model = self._normalize_model_index(actual_model_input)
         if force_edit and actual_model not in self.EDIT_MODEL_INDEXES:
-            actual_model = 19
+            actual_model = 14
 
         width, height = self._parse_resolution(actual_resolution or None)
         actual_steps = self._normalize_steps(actual_steps_input, actual_model)
@@ -670,6 +764,21 @@ class NovaMengyuDraw(Star):
 
         if actual_model in self.EDIT_MODEL_INDEXES and not actual_image_source:
             actual_image_source = await self._extract_image_url_from_event(event)
+
+        if actual_model in self.EDIT_MODEL_INDEXES and not actual_resolution and actual_image_source:
+            try:
+                source_path = await self._download_image(actual_image_source)
+                src_width, src_height = self._read_image_size(source_path)
+                if src_width > 0 and src_height > 0:
+                    width, height = self._scale_edit_image_to_limit(src_width, src_height)
+                    actual_resolution = f"{width}x{height}"
+                    logger.info(
+                        f"[NovaMengyuDraw] 编辑模型未指定分辨率，按原图比例自动缩放到单边不超过"
+                        f"{self.AUTO_EDIT_TARGET_MAX_SIDE}: source={src_width}x{src_height}, "
+                        f"target={width}x{height}"
+                    )
+            except Exception as e:
+                logger.warning(f"[NovaMengyuDraw] 读取原图尺寸失败，回退默认编辑分辨率: {e}")
 
         prompt_text = self._inject_quality_tags(prompt_text, actual_model)
 
@@ -700,9 +809,13 @@ class NovaMengyuDraw(Star):
         if auto_send:
             await event.send(event.chain_result([Image.fromFileSystem(str(image_path))]))
 
+        real_width, real_height = self._read_image_size(image_path)
+
         result["image_path"] = str(image_path)
-        result["width"] = width
-        result["height"] = height
+        result["requested_width"] = width
+        result["requested_height"] = height
+        result["width"] = real_width or width
+        result["height"] = real_height or height
         result["actual_model"] = actual_model
         result["actual_image_source"] = actual_image_source
         result["actual_prompt"] = prompt_text
@@ -719,7 +832,7 @@ class NovaMengyuDraw(Star):
         """ComfyUI 文生图工具。仅当用户明确提到用comfyui生图、用comfyui画图、画色图、涩图时调用。文生图 prompt 必须是详细英文 tag 串，不要用中文自然语言。
 
         Args:
-            prompt(string): 英文tag形式的文生图提示词。可在末尾附带 model10、model19、1216x832、1216-832 这类模型和分辨率标记；其余默认值如 steps=28、cfg=5、negative_prompt 由插件内部和面板配置处理
+            prompt(string): 英文tag形式的文生图提示词。可在末尾附带 model10、model14、1216x832、1216-832 这类模型和分辨率标记；其余默认值如 steps=28、cfg=5、negative_prompt 由插件内部和面板配置处理
         """
         user_id = event.get_sender_id()
         request_id = f"mengyudraw_{user_id}"
@@ -765,7 +878,7 @@ class NovaMengyuDraw(Star):
         Args:
             prompt(string): 中文自然语言编辑指令，例如 把头发改成黑发，保持人物脸部、服装和构图不变
             use_message_images(boolean): 是否自动使用当前消息或引用消息中的图片，默认 true。推荐优先使用这个方式取图
-            image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认模型固定优先使用 19，即 Qwen Image Edit2511版
+            image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认模型固定优先使用 14，即 Qwen Image Edit2511版
         """
         user_id = event.get_sender_id()
         request_id = f"mengyudraw_{user_id}"
@@ -791,7 +904,7 @@ class NovaMengyuDraw(Star):
             result = await self._run_draw_request(
                 event=event,
                 prompt=prompt,
-                model_index="19",
+                model_index="14",
                 image_source=actual_image_source,
                 force_edit=True,
             )
@@ -815,13 +928,13 @@ class NovaMengyuDraw(Star):
         用法示例：
         - /mengyudraw 1girl, silver hair, red eyes portrait
         - /mengyudraw 1girl, city night 1216x832
-        - /mengyudraw 把这张图头发改成黑发 model19
-        - /mengyudraw 把这张图背景改成海边 model18 --image_source=https://example.com/a.png
+        - /mengyudraw 把这张图头发改成黑发
+        - /mengyudraw 把这张图背景改成海边 --image_source=https://example.com/a.png
 
         说明：
-        - 直接在 prompt 里写 model8、model10、model18、model19 这类模型标记即可，插件会自动提取并删除
+        - 直接在 prompt 里写 model8、model10、model14 这类模型标记即可，插件会自动提取并删除
         - 直接在提示词最后写分辨率即可，如 portrait、landscape、square、1024、1216x832
-        - 如果消息里带图，且模型是 18/19，插件会自动提取该图 URL 作为 image_source
+        - 如果消息里带图、引用了图片，或提供了 --image_source，插件会自动切到编辑模型 14
         """
         arg = event.message_str.partition(" ")[2].strip()
         if not arg:
@@ -829,7 +942,7 @@ class NovaMengyuDraw(Star):
                 "请提供提示词！\n"
                 "用法: /mengyudraw <提示词> [分辨率]\n"
                 "示例1: /mengyudraw 1girl, silver hair portrait\n"
-                "示例2: /mengyudraw make hair black model18 --image_source=https://example.com/a.jpg"
+                "示例2: /mengyudraw 把这张图头发改成黑发 --image_source=https://example.com/a.jpg"
             ).stop_event()
             return
 
@@ -875,7 +988,11 @@ class NovaMengyuDraw(Star):
 
         try:
             await event.send(event.plain_result("正在使用comfyui画图，请稍后..."))
+            has_image_context = bool(image_source) or bool(await self._extract_image_url_from_event(event))
             actual_model = explicit_model if explicit_model is not None else self._normalize_model_index(None)
+            force_edit = has_image_context and explicit_model is None
+            if force_edit:
+                actual_model = 14
 
             result = await self._run_draw_request(
                 event=event,
@@ -883,7 +1000,7 @@ class NovaMengyuDraw(Star):
                 resolution=resolution,
                 model_index=str(actual_model),
                 image_source=image_source,
-                force_edit=actual_model in self.EDIT_MODEL_INDEXES,
+                force_edit=force_edit or actual_model in self.EDIT_MODEL_INDEXES,
                 auto_send=False,
             )
 

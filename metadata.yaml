@@ -1,6 +1,6 @@
 name: astrbot_plugin_nova_mengyudraw
 display_name: Nova梦羽绘图
-desc: 默认通过 Node undici 桥接请求与下载梦羽 AI 绘图结果，也支持 Cloudflare Worker 中转；支持受限触发的 AI 主动文生图、主动改图、QQ消息带图提取，以及 prompt 内 modelX、cfgX、stepsX、seedX、分辨率解析与删除。支持 NSFW。
-version: v1.3.1
+desc: 默认通过 Node undici 桥接请求与下载梦羽 AI 绘图结果，也支持 Cloudflare Worker 中转；支持受限触发的 AI 主动文生图、主动改图、QQ消息带图提取，以及 prompt 内 modelX、cfgX、stepsX、seedX、分辨率解析与删除。检测到引用图、消息带图或 image_source 时可自动切换到默认编辑模型；若改图未指定分辨率，则按原图宽高比自动放大或缩小到单边不超过 1980 的范围内，并记录真实成图尺寸。支持 NSFW。
+version: v1.4.4
 author: 辉宝
 repo: https://github.com/Yumenosora/astrbot_plugin_nova_mengyudraw
