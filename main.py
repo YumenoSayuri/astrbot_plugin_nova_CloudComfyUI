@@ -13,6 +13,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any
+from PIL import Image as PILImage
 
 import httpx
 
@@ -522,6 +523,61 @@ class NovaMengyuDraw(Star):
         logger.info(f"[NovaMengyuDraw] 图片已保存: {filepath}")
         return filepath
 
+    def _convert_image_to_png(self, filepath: Path) -> Path:
+        target_path = filepath.with_suffix(".png")
+        with PILImage.open(filepath) as img:
+            if img.mode not in ("RGB", "RGBA"):
+                img = img.convert("RGBA")
+            img.save(target_path, format="PNG")
+        logger.info(f"[NovaMengyuDraw] 图片已转换为 PNG: {target_path}")
+        return target_path
+
+    async def _send_image_result(
+        self,
+        event: AstrMessageEvent,
+        image_path: Path,
+        *,
+        use_forward: bool,
+        summary_text: str,
+    ) -> None:
+        if not use_forward:
+            await event.send(event.chain_result([Image.fromFileSystem(str(image_path))]))
+            return
+
+        raw_message = getattr(event.message_obj, "raw_message", None)
+        sender_name = getattr(event.get_sender_name(), "strip", lambda: "")() or "Nova"
+        sender_id = event.get_sender_id()
+
+        image_bytes = image_path.read_bytes()
+        image_base64 = base64.b64encode(image_bytes).decode("ascii")
+        image_ext = image_path.suffix.lower().lstrip(".") or "png"
+        if image_ext == "jpg":
+            image_ext = "jpeg"
+        image_data_uri = f"data:image/{image_ext};base64,{image_base64}"
+
+        node = {
+            "type": "node",
+            "data": {
+                "name": sender_name,
+                "uin": int(sender_id) if str(sender_id).isdigit() else 10000,
+                "content": [
+                    {"type": "text", "data": {"text": summary_text}},
+                    {"type": "image", "data": {"file": image_data_uri}},
+                ],
+            },
+        }
+
+        if isinstance(raw_message, dict) and raw_message.get("group_id"):
+            await event.bot.send_group_forward_msg(
+                group_id=int(raw_message.get("group_id")),
+                messages=[node],
+            )
+        else:
+            await event.bot.send_private_forward_msg(
+                user_id=int(sender_id),
+                messages=[node],
+            )
+
     async def _download_image_via_undici(self, image_url: str) -> Path:
         bridge_path = self.plugin_dir / "undici_bridge.mjs"
         if not bridge_path.exists():
@@ -822,8 +878,27 @@ class NovaMengyuDraw(Star):
         )
 
         image_path = await self._download_image(result["image_url"])
+
+        convert_edit_result_to_png = bool(self.config.get("convert_edit_result_to_png", True))
+        if actual_model in self.EDIT_MODEL_INDEXES and convert_edit_result_to_png:
+            try:
+                image_path = self._convert_image_to_png(image_path)
+            except Exception as e:
+                logger.warning(f"[NovaMengyuDraw] 编辑结果转 PNG 失败，继续发送原图: {e}")
+
+        send_image_as_forward = bool(self.config.get("send_image_as_forward", False))
         if auto_send:
-            await event.send(event.chain_result([Image.fromFileSystem(str(image_path))]))
+            await self._send_image_result(
+                event,
+                image_path,
+                use_forward=send_image_as_forward,
+                summary_text=(
+                    f"Nova 梦羽绘图结果\n"
+                    f"模型: {result.get('model_name', '未知')}\n"
+                    f"尺寸: {width}x{height}\n"
+                    f"积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
+                ),
+            )
 
         real_width, real_height = self._read_image_size(image_path)
 
@@ -1028,7 +1103,18 @@ class NovaMengyuDraw(Star):
                 f"seed={result.get('actual_seed', '?')}, image_path={image_path}"
             )
             if image_path:
-                yield event.chain_result([Image.fromFileSystem(str(image_path))]).stop_event()
+                await self._send_image_result(
+                    event,
+                    Path(image_path),
+                    use_forward=bool(self.config.get("send_image_as_forward", False)),
+                    summary_text=(
+                        f"Nova 梦羽绘图结果\n"
+                        f"模型: {result.get('model_name', '未知')}\n"
+                        f"尺寸: {result.get('width')}x{result.get('height')}\n"
+                        f"积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
+                    ),
+                )
+                yield event.plain_result("").stop_event()
             else:
                 yield event.plain_result("生成成功，但图片文件路径为空").stop_event()
 

@@ -35,6 +35,18 @@
         "type": "bool",
         "default": false
     },
+    "convert_edit_result_to_png": {
+        "description": "编辑结果发送前自动转 PNG",
+        "hint": "开启后，编辑模型生成的结果图片在发送前会优先转为 PNG，再发送给 QQ；可提升旧版 PC QQ 的图片兼容性",
+        "type": "bool",
+        "default": true
+    },
+    "send_image_as_forward": {
+        "description": "图片结果以合并转发发送",
+        "hint": "开启后，生成或改图结果不会直接裸图发送，而是以合并转发节点方式发出，适合规避群内直接露出敏感图片",
+        "type": "bool",
+        "default": false
+    },
     "default_resolution": {
         "description": "默认生成图片分辨率",
         "hint": "格式: 宽x高，如 512x768, 768x512。或使用预设: portrait, landscape, square, 1024",
