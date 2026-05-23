@@ -1,12 +1,12 @@
 {
     "base_url": {
-        "description": "梦羽 AI 绘图服务地址",
+        "description": "云端绘图服务地址",
         "hint": "接口站点根地址，例如 https://sd.exacg.cc",
         "type": "string",
         "default": "https://sd.exacg.cc"
     },
     "api_key": {
-        "description": "梦羽 API Key",
+        "description": "云端绘图 API Key",
         "hint": "在个人中心生成的 API 密钥，按 Bearer Token 方式调用",
         "type": "string",
         "default": ""

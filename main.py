@@ -893,7 +893,7 @@ class NovaMengyuDraw(Star):
                 image_path,
                 use_forward=send_image_as_forward,
                 summary_text=(
-                    f"Nova 梦羽绘图结果\n"
+                    f"绘图结果\n"
                     f"模型: {result.get('model_name', '未知')}\n"
                     f"尺寸: {width}x{height}\n"
                     f"积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
@@ -926,7 +926,7 @@ class NovaMengyuDraw(Star):
             prompt(string): 英文tag形式的文生图提示词。可在末尾附带 model10、model14、1216x832、1216-832 这类模型和分辨率标记；其余默认值如 steps=28、cfg=5、negative_prompt 由插件内部和面板配置处理
         """
         user_id = event.get_sender_id()
-        request_id = f"mengyudraw_{user_id}"
+        request_id = f"cloudcomfyui_{user_id}"
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
@@ -972,7 +972,7 @@ class NovaMengyuDraw(Star):
             image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认模型固定优先使用 14，即 Qwen Image Edit2511版
         """
         user_id = event.get_sender_id()
-        request_id = f"mengyudraw_{user_id}"
+        request_id = f"cloudcomfyui_{user_id}"
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
@@ -1012,15 +1012,15 @@ class NovaMengyuDraw(Star):
         finally:
             self._processing_users.discard(request_id)
 
-    @filter.command("mengyudraw", alias={"色图", "涩图", "画图"})
-    async def mengyudraw_command(self, event: AstrMessageEvent):
+    @filter.command("comfyui", alias={"色图", "涩图", "画图"})
+    async def comfyui_command(self, event: AstrMessageEvent):
         """生成图片指令
 
         用法示例：
-        - /mengyudraw 1girl, silver hair, red eyes portrait
-        - /mengyudraw 1girl, city night 1216x832
-        - /mengyudraw 把这张图头发改成黑发
-        - /mengyudraw 把这张图背景改成海边 --image_source=https://example.com/a.png
+        - /comfyui 1girl, silver hair, red eyes portrait
+        - /comfyui 1girl, city night 1216x832
+        - /comfyui 把这张图头发改成黑发
+        - /comfyui 把这张图背景改成海边 --image_source=https://example.com/a.png
 
         说明：
         - 直接在 prompt 里写 model8、model10、model14 这类模型标记即可，插件会自动提取并删除
@@ -1031,9 +1031,9 @@ class NovaMengyuDraw(Star):
         if not arg:
             yield event.plain_result(
                 "请提供提示词！\n"
-                "用法: /mengyudraw <提示词> [分辨率]\n"
-                "示例1: /mengyudraw 1girl, silver hair portrait\n"
-                "示例2: /mengyudraw 把这张图头发改成黑发 --image_source=https://example.com/a.jpg"
+                "用法: /comfyui <提示词> [分辨率]\n"
+                "示例1: /comfyui 1girl, silver hair portrait\n"
+                "示例2: /comfyui 把这张图头发改成黑发 --image_source=https://example.com/a.jpg"
             ).stop_event()
             return
 
@@ -1064,7 +1064,7 @@ class NovaMengyuDraw(Star):
             prompt = arg
 
         user_id = event.get_sender_id()
-        request_id = f"mengyudraw_{user_id}"
+        request_id = f"cloudcomfyui_{user_id}"
 
         if self._check_debounce(user_id):
             interval = self.config.get("debounce_interval", 15)
@@ -1108,7 +1108,7 @@ class NovaMengyuDraw(Star):
                     Path(image_path),
                     use_forward=bool(self.config.get("send_image_as_forward", False)),
                     summary_text=(
-                        f"Nova 梦羽绘图结果\n"
+                        f"绘图结果\n"
                         f"模型: {result.get('model_name', '未知')}\n"
                         f"尺寸: {result.get('width')}x{result.get('height')}\n"
                         f"积分: {result.get('points_used', '?')}/{result.get('remaining_points', '?')}"
