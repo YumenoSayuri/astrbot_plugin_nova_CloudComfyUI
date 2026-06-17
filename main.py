@@ -1,4 +1,4 @@
-"""
+﻿"""
 Nova MengyuDraw - 梦羽 AI 绘图插件
 默认通过 Node undici 桥接请求梦羽接口，Python 路径仅保留作兼容/兜底逻辑
 """
@@ -54,7 +54,6 @@ class NovaMengyuDraw(Star):
         14: "Qwen Image Edit2511版",
     }
 
-    EDIT_MODEL_INDEXES = {14}
     VIDEO_MODEL_INDEXES = set()
     QUALITY_PROMPT_TAGS = [
         "masterpiece",
@@ -191,7 +190,7 @@ class NovaMengyuDraw(Star):
         if value <= 0:
             value = int(self.config.get("default_steps", 20))
 
-        if model_index in self.EDIT_MODEL_INDEXES:
+        if self._is_edit_model_index(model_index):
             return value
 
         return max(1, min(50, value))
@@ -205,7 +204,7 @@ class NovaMengyuDraw(Star):
         if value <= 0:
             value = float(self.config.get("default_cfg", 5.0))
 
-        if model_index in self.EDIT_MODEL_INDEXES:
+        if self._is_edit_model_index(model_index):
             return value
 
         return max(1.0, min(10.0, value))
@@ -220,13 +219,27 @@ class NovaMengyuDraw(Star):
             value = int(self.config.get("default_model_index", 10))
         return value
 
+    def _get_default_edit_model_index(self) -> int:
+        try:
+            value = int(self.config.get("default_edit_model_index", 14))
+        except (TypeError, ValueError):
+            value = 14
+
+        return value if value >= 0 else 14
+
+    def _get_edit_model_indexes(self) -> set[int]:
+        return {self._get_default_edit_model_index()}
+
+    def _is_edit_model_index(self, model_index: int) -> bool:
+        return model_index in self._get_edit_model_indexes()
+
     def _normalize_seed(self, seed: str | int | None, model_index: int) -> int:
         try:
             value = int(seed) if seed not in ("", None) else 0
         except (TypeError, ValueError):
             value = 0
 
-        if model_index in self.EDIT_MODEL_INDEXES:
+        if self._is_edit_model_index(model_index):
             return value if value > 0 else -1
 
         if value > 0:
@@ -249,7 +262,7 @@ class NovaMengyuDraw(Star):
         if model_index in self.VIDEO_MODEL_INDEXES:
             raise RuntimeError("当前插件暂不支持视频模型，请改用图片模型")
 
-        if model_index in self.EDIT_MODEL_INDEXES:
+        if self._is_edit_model_index(model_index):
             if not image_source:
                 raise RuntimeError("图片编辑模型必须提供 image_source 原图地址")
             return {
@@ -724,7 +737,7 @@ class NovaMengyuDraw(Star):
         return cleaned, seed_value
 
     def _inject_quality_tags(self, prompt: str, model_index: int) -> str:
-        if model_index in self.EDIT_MODEL_INDEXES:
+        if self._is_edit_model_index(model_index):
             return prompt.strip()
 
         existing_tags = {tag.strip().lower() for tag in prompt.split(",") if tag.strip()}
@@ -808,8 +821,8 @@ class NovaMengyuDraw(Star):
         actual_seed_input = seed or extracted_seed
 
         actual_model = self._normalize_model_index(actual_model_input)
-        if force_edit and actual_model not in self.EDIT_MODEL_INDEXES:
-            actual_model = 14
+        if force_edit and not self._is_edit_model_index(actual_model):
+            actual_model = self._get_default_edit_model_index()
 
         width, height = self._parse_resolution(actual_resolution or None)
         actual_steps = self._normalize_steps(actual_steps_input, actual_model)
@@ -818,12 +831,12 @@ class NovaMengyuDraw(Star):
         actual_neg = negative_prompt or self.config.get("default_negative_prompt", "")
         actual_image_source = image_source.strip()
 
-        if actual_model in self.EDIT_MODEL_INDEXES and not actual_image_source:
+        if self._is_edit_model_index(actual_model) and not actual_image_source:
             actual_image_source = await self._extract_image_url_from_event(event)
 
         auto_shrink_edit_resolution = bool(self.config.get("auto_shrink_edit_resolution", True))
         auto_enlarge_edit_resolution = bool(self.config.get("auto_enlarge_edit_resolution", False))
-        if actual_model in self.EDIT_MODEL_INDEXES and not actual_resolution and actual_image_source:
+        if self._is_edit_model_index(actual_model) and not actual_resolution and actual_image_source:
             try:
                 source_path = await self._download_image(actual_image_source)
                 src_width, src_height = self._read_image_size(source_path)
@@ -880,7 +893,7 @@ class NovaMengyuDraw(Star):
         image_path = await self._download_image(result["image_url"])
 
         convert_edit_result_to_png = bool(self.config.get("convert_edit_result_to_png", True))
-        if actual_model in self.EDIT_MODEL_INDEXES and convert_edit_result_to_png:
+        if self._is_edit_model_index(actual_model) and convert_edit_result_to_png:
             try:
                 image_path = self._convert_image_to_png(image_path)
             except Exception as e:
@@ -969,7 +982,7 @@ class NovaMengyuDraw(Star):
         Args:
             prompt(string): 中文自然语言编辑指令，例如 把头发改成黑发，保持人物脸部、服装和构图不变
             use_message_images(boolean): 是否自动使用当前消息或引用消息中的图片，默认 true。推荐优先使用这个方式取图
-            image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认模型固定优先使用 14，即 Qwen Image Edit2511版
+            image_source(string): 可直接访问的图片URL；若为空则尝试从消息中自动提取。默认编辑模型索引由面板配置 default_edit_model_index 决定，默认值为 14
         """
         user_id = event.get_sender_id()
         request_id = f"cloudcomfyui_{user_id}"
@@ -995,7 +1008,7 @@ class NovaMengyuDraw(Star):
             result = await self._run_draw_request(
                 event=event,
                 prompt=prompt,
-                model_index="14",
+                model_index=str(self._get_default_edit_model_index()),
                 image_source=actual_image_source,
                 force_edit=True,
             )
@@ -1025,7 +1038,7 @@ class NovaMengyuDraw(Star):
         说明：
         - 直接在 prompt 里写 model8、model10、model14 这类模型标记即可，插件会自动提取并删除
         - 直接在提示词最后写分辨率即可，如 portrait、landscape、square、1024、1216x832
-        - 如果消息里带图、引用了图片，或提供了 --image_source，插件会自动切到编辑模型 14
+        - 如果消息里带图、引用了图片，或提供了 --image_source，插件会自动切到面板配置的默认编辑模型索引
         """
         arg = event.message_str.partition(" ")[2].strip()
         if not arg:
@@ -1083,7 +1096,7 @@ class NovaMengyuDraw(Star):
             actual_model = explicit_model if explicit_model is not None else self._normalize_model_index(None)
             force_edit = has_image_context and explicit_model is None
             if force_edit:
-                actual_model = 14
+                actual_model = self._get_default_edit_model_index()
 
             result = await self._run_draw_request(
                 event=event,
@@ -1091,7 +1104,7 @@ class NovaMengyuDraw(Star):
                 resolution=resolution,
                 model_index=str(actual_model),
                 image_source=image_source,
-                force_edit=force_edit or actual_model in self.EDIT_MODEL_INDEXES,
+                force_edit=force_edit or self._is_edit_model_index(actual_model),
                 auto_send=False,
             )
 

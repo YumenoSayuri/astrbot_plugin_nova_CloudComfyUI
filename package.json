@@ -1,14 +1,14 @@
 {
   "name": "astrbot_plugin_cloudcomfyui",
-  "version": "1.4.8",
-  "description": "通过 Node undici 桥接请求与下载云端绘图结果的 AstrBot 插件，支持有图自动切换到默认编辑模型，并可在面板中分别控制改图自动缩小超限原图、自动放大小图、编辑结果转 PNG 与合并转发发送，同时记录真实成图尺寸。",
+  "version": "1.4.10",
+  "description": "通过可切换后端请求云端绘图结果的 AstrBot 插件，默认 Node undici + Worker，也支持 Python + Worker 或 Python 直连源站；内置敏感错误脱敏、Chrome UA、编辑结果转 PNG 与合并转发发送。",
   "main": "index.js",
   "scripts": {
     "test": "echo \"No npm test specified for this plugin\""
   },
   "keywords": [
     "astrbot",
-    "mengyu",
+    "cloudcomfyui",
     "draw",
     "undici",
     "worker",

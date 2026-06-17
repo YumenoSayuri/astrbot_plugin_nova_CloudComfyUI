@@ -29,7 +29,8 @@ function parseArgs() {
         apiKey: '',
         proxy: '',
         data: '{}',
-        responseType: 'auto'
+        responseType: 'auto',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36'
     };
 
     for (let i = 0; i < args.length; i++) {
@@ -50,6 +51,9 @@ function parseArgs() {
             i++;
         } else if (args[i] === '--response-type' && args[i + 1]) {
             config.responseType = args[i + 1].toLowerCase();
+            i++;
+        } else if (args[i] === '--user-agent' && args[i + 1]) {
+            config.userAgent = args[i + 1];
             i++;
         }
     }
@@ -140,6 +144,9 @@ async function main() {
 
     try {
         const headers = {};
+        if (config.userAgent) {
+            headers['User-Agent'] = config.userAgent;
+        }
 
         if (config.method === 'POST') {
             headers['Content-Type'] = 'application/json';
@@ -173,9 +180,15 @@ async function main() {
 
         console.log(JSON.stringify(result));
     } catch (e) {
+        const cause = e.cause || {};
         console.log(JSON.stringify({
-            error: e.message,
-            code: e.code || 'UNKNOWN',
+            error: e.message || 'fetch failed',
+            code: e.code || cause.code || 'UNKNOWN',
+            causeName: cause.name || '',
+            causeMessage: cause.message || '',
+            causeCode: cause.code || '',
+            causeErrno: cause.errno || '',
+            causeSyscall: cause.syscall || '',
             usingUndici
         }));
         process.exit(1);

@@ -76,8 +76,8 @@
         "default": 7.0
     },
     "default_model_index": {
-        "description": "默认模型索引",
-        "hint": "参考 README 中的模型表。推荐默认使用 10（wai16）；14 为默认图片编辑模型。当前插件版本不支持视频模型。",
+        "description": "默认文生图模型索引",
+        "hint": "参考 README 中的模型表。推荐默认使用 10（wai16）。当前插件版本不支持视频模型。",
         "type": "int",
         "slider": {
             "min": 0,
@@ -85,6 +85,12 @@
             "step": 1
         },
         "default": 10
+    },
+    "default_edit_model_index": {
+        "description": "默认编辑模型索引",
+        "hint": "图片编辑时默认使用的模型索引，可按服务端实际索引自由填写，默认值为 14。",
+        "type": "int",
+        "default": 14
     },
     "default_negative_prompt": {
         "description": "默认负面提示词",

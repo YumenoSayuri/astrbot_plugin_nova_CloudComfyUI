@@ -1,6 +1,6 @@
 name: astrbot_plugin_cloudcomfyui
 display_name: CloudComfyUI
-desc: 默认通过 Node undici 桥接请求与下载云端绘图结果，也支持 Cloudflare Worker 中转；支持受限触发的 AI 主动文生图、主动改图、QQ消息带图提取，以及 prompt 内 modelX、cfgX、stepsX、seedX、分辨率解析与删除。检测到引用图、消息带图或 image_source 时可自动切换到默认编辑模型；可分别控制自动缩小超限原图、自动放大小图、编辑结果发送前转 PNG，以及图片结果以合并转发发送，并记录真实成图尺寸。支持 NSFW。
-version: v1.4.8
+desc: 默认通过 Node undici + Cloudflare Worker 请求与下载云端绘图结果，也支持切换为 Python + Worker 或 Python 直连源站；内置 Chrome User-Agent、敏感错误脱敏、AI 主动文生图、主动改图、QQ消息带图提取、prompt 内 modelX/cfgX/stepsX/seedX/分辨率解析、编辑结果转 PNG、合并转发发送，并记录真实成图尺寸。支持 NSFW。
+version: v1.4.10
 author: 辉宝
 repo: https://github.com/Yumenosora/astrbot_plugin_cloudcomfyui

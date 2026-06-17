@@ -1,4 +1,4 @@
-# CloudComfyUI 插件
+﻿# CloudComfyUI 插件
 
 ## 简介
 
@@ -30,7 +30,25 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 
 ---
 
-## v1.4.7 更新说明
+## v1.4.10 更新说明
+
+### 新增默认编辑模型索引面板项
+
+本次新增新的面板配置项：
+
+- `default_edit_model_index`
+
+默认值：
+
+- 默认编辑模型索引：`14`
+
+行为说明：
+
+- 图片编辑时默认读取 `default_edit_model_index`
+- AI 主动改图和命令检测到图片上下文时，都会优先使用该配置
+- 如果你在面板里改成别的模型索引，编辑流程会直接跟着变，不再死写 `14`
+
+---
 
 ### 新增 edit 结果转 PNG 与合并转发发送开关
 
@@ -151,19 +169,15 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 14 = Qwen Image Edit2511版
 ```
 
-### 默认编辑模型改为 14
+### 默认编辑模型可在面板修改
 
-当前唯一的编辑模型索引为：
-
-```text
-14 = Qwen Image Edit2511版
-```
+默认编辑模型索引由面板里的 `default_edit_model_index` 控制，默认值为 `14`。
 
 因此：
 
 - 不再需要手动在编辑 prompt 里写 `model14`
-- AI 主动改图默认直接使用 `14`
-- 命令检测到图片时，也会自动切换到 `14`
+- AI 主动改图会读取面板里的 `default_edit_model_index`
+- 命令检测到图片时，也会自动切换到该默认编辑模型
 
 ---
 
@@ -191,7 +205,7 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 
 ### 图片编辑说明
 
-如果当前消息、引用消息中带图，或显式提供了 `--image_source`，插件会自动提取该图 URL，并默认切换到编辑模型 `14`。如果没有手动指定分辨率，则会根据面板中的 `auto_shrink_edit_resolution` 与 `auto_enlarge_edit_resolution` 两个开关，分别决定是否自动缩小超限原图或自动放大小图。
+如果当前消息、引用消息中带图，或显式提供了 `--image_source`，插件会自动提取该图 URL，并默认切换到面板配置的默认编辑模型索引。若没有手动指定分辨率，则会根据面板中的 `auto_shrink_edit_resolution` 与 `auto_enlarge_edit_resolution` 两个开关，分别决定是否自动缩小超限原图或自动放大小图。
 
 ---
 
@@ -200,9 +214,9 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 这些值主要由插件面板配置控制：
 
 - 默认文生图模型：`10`
+- 默认编辑模型：`default_edit_model_index`（默认 `14`）
 - 默认步数：`28`
 - 默认 CFG：`7`
-- 默认编辑模型：`14`
 - 编辑模型自动缩小超限原图：`true`
 - 编辑模型自动放大小图：`false`
 - 编辑结果发送前自动转 PNG：`true`
@@ -215,4 +229,4 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 
 ## 版本
 
-当前版本：[`v1.4.7`](AstrBot/data/plugins/astrbot_plugin_nova_mengyudraw/metadata.yaml:4)
+当前版本：[`v1.4.10`](AstrBot/data/plugins/astrbot_plugin_nova_cloudcomfyui/metadata.yaml:4)
