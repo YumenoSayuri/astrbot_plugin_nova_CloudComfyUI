@@ -1,6 +1,6 @@
 {
   "name": "astrbot_plugin_cloudcomfyui",
-  "version": "1.4.10",
+  "version": "1.4.11",
   "description": "通过可切换后端请求云端绘图结果的 AstrBot 插件，默认 Node undici + Worker，也支持 Python + Worker 或 Python 直连源站；内置敏感错误脱敏、Chrome UA、编辑结果转 PNG 与合并转发发送。",
   "main": "index.js",
   "scripts": {

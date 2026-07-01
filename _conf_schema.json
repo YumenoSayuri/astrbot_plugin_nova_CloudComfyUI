@@ -17,11 +17,12 @@
         "type": "string",
         "default": "http://127.0.0.1:7897"
     },
-    "enable_undici_fallback": {
-        "description": "保留 undici 桥接能力",
-        "hint": "当前默认主路径就是 Node undici_bridge.mjs；此项主要用于兼容内部调用策略",
-        "type": "bool",
-        "default": true
+    "request_backend": {
+        "description": "请求后端",
+        "hint": "选择请求云端接口的方式。python: Python直连(已伪装UA)；node: Node undici桥接(适合服务器环境)",
+        "type": "string",
+        "keys": ["python", "node"],
+        "default": "python"
     },
     "auto_shrink_edit_resolution": {
         "description": "编辑模型自动缩小超限原图",

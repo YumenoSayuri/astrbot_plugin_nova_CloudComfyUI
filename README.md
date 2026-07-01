@@ -1,4 +1,4 @@
-﻿# CloudComfyUI 插件
+# CloudComfyUI 插件
 
 ## 简介
 
@@ -27,6 +27,16 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 - 命令成功时默认只发图，成功摘要写日志
 - 记录真实成图尺寸，避免请求尺寸与实际输出不一致时误报
 - Cloudflare Worker 中转兼容
+
+---
+
+## v1.4.11 更新说明
+
+### 新增请求后端切换 (Python 直连 / Node 桥接)
+
+- 新增面板配置 `request_backend`，默认 `python`。
+- Python 直连已全面伪装 Chrome UA 绕过 CF 拦截。
+- 支持在 Python 和 Node 桥接间自由切换，且生图与下载均会自动互相兜底。
 
 ---
 
@@ -128,8 +138,6 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 
 ---
 
-## v1.4.3 修复说明
-
 ## v1.4.1 修复说明
 
 ### 编辑模型尺寸误报修复
@@ -229,4 +237,4 @@ CloudComfyUI 插件默认通过 Node undici 桥接调用云端绘图接口，并
 
 ## 版本
 
-当前版本：[`v1.4.10`](AstrBot/data/plugins/astrbot_plugin_nova_cloudcomfyui/metadata.yaml:4)
+当前版本：[`v1.4.11`](AstrBot/data/plugins/astrbot_plugin_nova_cloudcomfyui/metadata.yaml:4)

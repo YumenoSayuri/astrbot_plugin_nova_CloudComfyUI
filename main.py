@@ -1,6 +1,6 @@
 ﻿"""
-Nova MengyuDraw - 梦羽 AI 绘图插件
-默认通过 Node undici 桥接请求梦羽接口，Python 路径仅保留作兼容/兜底逻辑
+Nova CloudComfyUI - 云端 AI 绘图插件
+默认通过 Node undici 桥接请求云端接口，Python 路径仅保留作兼容/兜底逻辑
 """
 
 import base64
@@ -26,8 +26,8 @@ from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star, StarTools
 
 
-class NovaMengyuDraw(Star):
-    """Nova MengyuDraw - 梦羽 AI 绘图接口生成图片"""
+class NovaCloudComfyUI(Star):
+    """Nova CloudComfyUI - 云端 AI 绘图接口生成图片"""
 
     RESOLUTION_PRESETS = {
         "square": "512x512",
@@ -76,20 +76,20 @@ class NovaMengyuDraw(Star):
         self._base_url: str = ""
         self._api_key: str = ""
         self._proxy_url: str = ""
-        self._enable_undici_fallback: bool = True
+        self._request_backend: str = "python"
 
     def _ensure_node_dependencies(self) -> None:
         package_json = self.plugin_dir / "package.json"
         node_modules_undici = self.plugin_dir / "node_modules" / "undici"
 
         if node_modules_undici.exists():
-            logger.info("[NovaMengyuDraw] 检测到 undici 依赖已存在")
+            logger.info("[NovaCloudComfyUI] 检测到 undici 依赖已存在")
             return
 
         if not package_json.exists():
             raise RuntimeError("缺少 package.json，无法自动安装 Node 依赖")
 
-        logger.warning("[NovaMengyuDraw] 未检测到 undici，开始自动执行 npm install")
+        logger.warning("[NovaCloudComfyUI] 未检测到 undici，开始自动执行 npm install")
         result = subprocess.run(
             ["npm", "install"],
             cwd=str(self.plugin_dir),
@@ -108,7 +108,7 @@ class NovaMengyuDraw(Star):
         if not node_modules_undici.exists():
             raise RuntimeError("npm install 执行完成，但未找到 node_modules/undici")
 
-        logger.info("[NovaMengyuDraw] Node 依赖安装完成")
+        logger.info("[NovaCloudComfyUI] Node 依赖安装完成")
 
     async def initialize(self):
         """初始化插件"""
@@ -120,26 +120,32 @@ class NovaMengyuDraw(Star):
             timeout=timeout,
             follow_redirects=True,
             transport=transport,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            }
         )
 
         self._base_url = self.config.get("base_url", "https://sd.exacg.cc").strip().rstrip("/")
         self._api_key = self.config.get("api_key", "").strip()
         self._proxy_url = proxy_url
-        self._enable_undici_fallback = bool(self.config.get("enable_undici_fallback", True))
+        self._request_backend = self.config.get("request_backend", "python")
 
-        self._ensure_node_dependencies()
+        if self._request_backend == "node":
+            self._ensure_node_dependencies()
 
-        logger.info(f"[NovaMengyuDraw] API Base URL: {self._base_url}")
-        logger.info(f"[NovaMengyuDraw] Proxy: {self._proxy_url or 'disabled'}")
-        logger.info(f"[NovaMengyuDraw] Undici fallback: {self._enable_undici_fallback}")
-        logger.info("[NovaMengyuDraw] 插件初始化完成")
+        logger.info(f"[NovaCloudComfyUI] API Base URL: {self._base_url}")
+        logger.info(f"[NovaCloudComfyUI] Proxy: {self._proxy_url or 'disabled'}")
+        logger.info(f"[NovaCloudComfyUI] Request Backend: {self._request_backend}")
+        logger.info("[NovaCloudComfyUI] 插件初始化完成")
 
     async def terminate(self):
         """清理资源"""
         if self._client:
             await self._client.aclose()
             self._client = None
-        logger.info("[NovaMengyuDraw] 插件已终止")
+        logger.info("[NovaCloudComfyUI] 插件已终止")
 
     def _parse_resolution(self, resolution: str | None) -> tuple[int, int]:
         """解析分辨率字符串，返回 width, height"""
@@ -299,12 +305,12 @@ class NovaMengyuDraw(Star):
         headers: dict[str, str],
     ) -> dict[str, Any]:
         url = f"{self._base_url}/api/v1/generate_image"
-        logger.info(f"[NovaMengyuDraw] HTTPX 请求梦羽接口: {url}")
+        logger.info(f"[NovaCloudComfyUI] HTTPX 请求云端接口: {url}")
 
         try:
             response = await self._client.post(url, headers=headers, json=payload)
         except httpx.TimeoutException as exc:
-            raise RuntimeError("梦羽接口请求超时，请稍后重试") from exc
+            raise RuntimeError("云端接口请求超时，请稍后重试") from exc
 
         content_type = response.headers.get("content-type", "")
         response_text = response.text
@@ -318,12 +324,12 @@ class NovaMengyuDraw(Star):
                 error_message = error_json.get("error") or error_json.get("message") or str(error_json)
             except Exception:
                 error_message = response_text[:500]
-            raise RuntimeError(f"梦羽接口请求失败 ({response.status_code}): {error_message}")
+            raise RuntimeError(f"云端接口请求失败 ({response.status_code}): {error_message}")
 
         try:
             return response.json()
         except json.JSONDecodeError as exc:
-            raise RuntimeError(f"梦羽接口响应解析失败: {exc}") from exc
+            raise RuntimeError(f"云端接口响应解析失败: {exc}") from exc
 
     async def _call_generate_api_undici(
         self,
@@ -349,7 +355,7 @@ class NovaMengyuDraw(Star):
         if self._proxy_url:
             command.extend(["--proxy", self._proxy_url])
 
-        logger.info("[NovaMengyuDraw] 使用 undici 桥接请求梦羽接口")
+        logger.info("[NovaCloudComfyUI] 使用 undici 桥接请求云端接口")
         result = subprocess.run(
             command,
             cwd=str(self.plugin_dir),
@@ -386,7 +392,7 @@ class NovaMengyuDraw(Star):
                 error_message = body.get("error") or body.get("message") or json.dumps(body, ensure_ascii=False)
             else:
                 error_message = body_text[:500]
-            raise RuntimeError(f"梦羽接口请求失败 ({status_code}): {error_message}")
+            raise RuntimeError(f"云端接口请求失败 ({status_code}): {error_message}")
 
         if not isinstance(body, dict):
             raise RuntimeError("undici 桥接返回的 body 不是 JSON 对象")
@@ -406,7 +412,7 @@ class NovaMengyuDraw(Star):
         image_source: str = "",
     ) -> dict[str, Any]:
         if not self._api_key:
-            raise RuntimeError("未配置 api_key，无法调用梦羽绘图接口")
+            raise RuntimeError("未配置 api_key，无法调用云端绘图接口")
 
         payload = self._build_request_payload(
             prompt=prompt,
@@ -425,12 +431,15 @@ class NovaMengyuDraw(Star):
             "Content-Type": "application/json",
         }
 
-        logger.debug(f"[NovaMengyuDraw] 请求体: {json.dumps(payload, ensure_ascii=False)}")
+        logger.debug(f"[NovaCloudComfyUI] 请求体: {json.dumps(payload, ensure_ascii=False)}")
 
-        result = await self._call_generate_api_undici(payload)
+        if self._request_backend == "node":
+            result = await self._call_generate_api_undici(payload)
+        else:
+            result = await self._call_generate_api_httpx(payload, headers)
 
         if not result.get("success"):
-            raise RuntimeError(result.get("error") or result.get("message") or "梦羽接口返回失败")
+            raise RuntimeError(result.get("error") or result.get("message") or "云端接口返回失败")
 
         data = result.get("data") or {}
         image_url = data.get("image_url")
@@ -458,7 +467,7 @@ class NovaMengyuDraw(Star):
                 if isinstance(seg, AstrImageComponent) and getattr(seg, "url", ""):
                     return seg.url
         except Exception as e:
-            logger.warning(f"[NovaMengyuDraw] 提取消息图片失败: {e}")
+            logger.warning(f"[NovaCloudComfyUI] 提取消息图片失败: {e}")
         return ""
 
     def _guess_file_extension(self, content_type: str) -> str:
@@ -533,7 +542,7 @@ class NovaMengyuDraw(Star):
         filename = f"{uuid.uuid4()}.{ext}"
         filepath = self.image_dir / filename
         filepath.write_bytes(content)
-        logger.info(f"[NovaMengyuDraw] 图片已保存: {filepath}")
+        logger.info(f"[NovaCloudComfyUI] 图片已保存: {filepath}")
         return filepath
 
     def _convert_image_to_png(self, filepath: Path) -> Path:
@@ -542,7 +551,7 @@ class NovaMengyuDraw(Star):
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGBA")
             img.save(target_path, format="PNG")
-        logger.info(f"[NovaMengyuDraw] 图片已转换为 PNG: {target_path}")
+        logger.info(f"[NovaCloudComfyUI] 图片已转换为 PNG: {target_path}")
         return target_path
 
     async def _send_image_result(
@@ -610,7 +619,7 @@ class NovaMengyuDraw(Star):
         if self._proxy_url:
             command.extend(["--proxy", self._proxy_url])
 
-        logger.info(f"[NovaMengyuDraw] 使用 undici 桥接下载图片: {image_url[:120]}...")
+        logger.info(f"[NovaCloudComfyUI] 使用 undici 桥接下载图片: {image_url[:120]}...")
         result = subprocess.run(
             command,
             cwd=str(self.plugin_dir),
@@ -652,7 +661,7 @@ class NovaMengyuDraw(Star):
         return self._save_downloaded_bytes(content, content_type)
 
     async def _download_image_via_httpx(self, image_url: str) -> Path:
-        logger.info(f"[NovaMengyuDraw] 使用 HTTPX 下载图片: {image_url[:120]}...")
+        logger.info(f"[NovaCloudComfyUI] 使用 HTTPX 下载图片: {image_url[:120]}...")
         response = await self._client.get(image_url)
 
         if response.status_code != 200:
@@ -662,21 +671,20 @@ class NovaMengyuDraw(Star):
         return self._save_downloaded_bytes(response.content, content_type)
 
     async def _download_image(self, image_url: str) -> Path:
-        logger.info(f"[NovaMengyuDraw] 下载图片: {image_url[:120]}...")
-        undici_error: Exception | None = None
-
-        try:
-            return await self._download_image_via_undici(image_url)
-        except Exception as e:
-            undici_error = e
-            logger.warning(f"[NovaMengyuDraw] undici 下载失败，回退 HTTPX: {e}")
-
-        try:
-            return await self._download_image_via_httpx(image_url)
-        except Exception as e:
-            if undici_error is not None:
-                raise RuntimeError(f"下载图片失败，undici={undici_error}; httpx={e}") from e
-            raise
+        logger.info(f"[NovaCloudComfyUI] 下载图片: {image_url[:120]}...")
+        
+        if self._request_backend == "node":
+            try:
+                return await self._download_image_via_undici(image_url)
+            except Exception as e:
+                logger.warning(f"[NovaCloudComfyUI] undici 下载失败，回退 HTTPX: {e}")
+                return await self._download_image_via_httpx(image_url)
+        else:
+            try:
+                return await self._download_image_via_httpx(image_url)
+            except Exception as e:
+                logger.warning(f"[NovaCloudComfyUI] HTTPX 下载失败，回退 undici: {e}")
+                return await self._download_image_via_undici(image_url)
 
     def _extract_model_token(self, text: str) -> tuple[str, str]:
         match = re.search(r"\bmodel\s*(\d{1,2})\b", text, re.IGNORECASE)
@@ -685,7 +693,7 @@ class NovaMengyuDraw(Star):
         model_index = match.group(1)
         cleaned = re.sub(r"\bmodel\s*\d{1,2}\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaMengyuDraw] 从 prompt 中提取模型标记: model{model_index} -> 清洗后 prompt: {cleaned}"
+            f"[NovaCloudComfyUI] 从 prompt 中提取模型标记: model{model_index} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, model_index
 
@@ -698,7 +706,7 @@ class NovaMengyuDraw(Star):
         suffix_lower = suffix.lower()
         if suffix_lower in self.RESOLUTION_PRESETS or re.match(r"\d+\s*[x×*X-]\s*\d+", suffix_lower):
             logger.info(
-                f"[NovaMengyuDraw] 从 prompt 中提取分辨率标记: {suffix_lower} -> 清洗后 prompt: {possible_prompt.strip()}"
+                f"[NovaCloudComfyUI] 从 prompt 中提取分辨率标记: {suffix_lower} -> 清洗后 prompt: {possible_prompt.strip()}"
             )
             return possible_prompt.strip(), suffix_lower
         return text.strip(), ""
@@ -710,7 +718,7 @@ class NovaMengyuDraw(Star):
         cfg_value = match.group(1)
         cleaned = re.sub(r"\bcfg\s*[0-9]+(?:\.[0-9]+)?\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaMengyuDraw] 从 prompt 中提取 CFG 标记: cfg{cfg_value} -> 清洗后 prompt: {cleaned}"
+            f"[NovaCloudComfyUI] 从 prompt 中提取 CFG 标记: cfg{cfg_value} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, cfg_value
 
@@ -721,7 +729,7 @@ class NovaMengyuDraw(Star):
         steps_value = match.group(1)
         cleaned = re.sub(r"\bsteps\s*\d{1,3}\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaMengyuDraw] 从 prompt 中提取步数标记: steps{steps_value} -> 清洗后 prompt: {cleaned}"
+            f"[NovaCloudComfyUI] 从 prompt 中提取步数标记: steps{steps_value} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, steps_value
 
@@ -732,7 +740,7 @@ class NovaMengyuDraw(Star):
         seed_value = match.group(1)
         cleaned = re.sub(r"\bseed\s*\d{1,10}\b", "", text, flags=re.IGNORECASE).strip()
         logger.info(
-            f"[NovaMengyuDraw] 从 prompt 中提取种子标记: seed{seed_value} -> 清洗后 prompt: {cleaned}"
+            f"[NovaCloudComfyUI] 从 prompt 中提取种子标记: seed{seed_value} -> 清洗后 prompt: {cleaned}"
         )
         return cleaned, seed_value
 
@@ -849,7 +857,7 @@ class NovaMengyuDraw(Star):
                         actual_resolution = f"{width}x{height}"
                         action = "缩小" if should_shrink else "放大"
                         logger.info(
-                            f"[NovaMengyuDraw] 编辑模型未指定分辨率，已按面板开关自动等比{action}到单边不超过"
+                            f"[NovaCloudComfyUI] 编辑模型未指定分辨率，已按面板开关自动等比{action}到单边不超过"
                             f"{self.AUTO_EDIT_TARGET_MAX_SIDE}: source={src_width}x{src_height}, "
                             f"target={width}x{height}, shrink={auto_shrink_edit_resolution}, "
                             f"enlarge={auto_enlarge_edit_resolution}"
@@ -858,23 +866,23 @@ class NovaMengyuDraw(Star):
                         width, height = src_width, src_height
                         actual_resolution = f"{width}x{height}"
                         logger.info(
-                            f"[NovaMengyuDraw] 编辑模型未指定分辨率，未触发自动缩放，直接使用原图分辨率: "
+                            f"[NovaCloudComfyUI] 编辑模型未指定分辨率，未触发自动缩放，直接使用原图分辨率: "
                             f"source={src_width}x{src_height}, shrink={auto_shrink_edit_resolution}, "
                             f"enlarge={auto_enlarge_edit_resolution}"
                         )
             except Exception as e:
-                logger.warning(f"[NovaMengyuDraw] 读取原图尺寸失败，回退默认编辑分辨率: {e}")
+                logger.warning(f"[NovaCloudComfyUI] 读取原图尺寸失败，回退默认编辑分辨率: {e}")
 
         prompt_text = self._inject_quality_tags(prompt_text, actual_model)
 
         logger.info(
-            f"[NovaMengyuDraw] prompt 解析结果: raw_prompt={raw_prompt_text!r}, "
+            f"[NovaCloudComfyUI] prompt 解析结果: raw_prompt={raw_prompt_text!r}, "
             f"clean_prompt={prompt_text!r}, extracted_model={extracted_model or 'none'}, "
             f"extracted_cfg={extracted_cfg or 'none'}, extracted_steps={extracted_steps or 'none'}, "
             f"extracted_seed={extracted_seed or 'none'}, extracted_resolution={extracted_resolution or 'none'}"
         )
         logger.info(
-            f"[NovaMengyuDraw] 实际请求参数: model={actual_model}, size={width}x{height}, "
+            f"[NovaCloudComfyUI] 实际请求参数: model={actual_model}, size={width}x{height}, "
             f"steps={actual_steps}, cfg={actual_cfg}, seed={actual_seed}"
         )
 
@@ -897,7 +905,7 @@ class NovaMengyuDraw(Star):
             try:
                 image_path = self._convert_image_to_png(image_path)
             except Exception as e:
-                logger.warning(f"[NovaMengyuDraw] 编辑结果转 PNG 失败，继续发送原图: {e}")
+                logger.warning(f"[NovaCloudComfyUI] 编辑结果转 PNG 失败，继续发送原图: {e}")
 
         send_image_as_forward = bool(self.config.get("send_image_as_forward", False))
         if auto_send:
@@ -964,7 +972,7 @@ class NovaMengyuDraw(Star):
                 f"- Seed: {result.get('actual_seed', '?')}"
             )
         except Exception as e:
-            logger.error(f"[NovaMengyuDraw] 主动文生图失败: {e}")
+            logger.error(f"[NovaCloudComfyUI] 主动文生图失败: {e}")
             return f"生成图片失败: {str(e)}"
         finally:
             self._processing_users.discard(request_id)
@@ -1020,7 +1028,7 @@ class NovaMengyuDraw(Star):
                 f"- Seed: {result.get('actual_seed', '?')}"
             )
         except Exception as e:
-            logger.error(f"[NovaMengyuDraw] 主动图编辑失败: {e}")
+            logger.error(f"[NovaCloudComfyUI] 主动图编辑失败: {e}")
             return f"编辑图片失败: {str(e)}"
         finally:
             self._processing_users.discard(request_id)
@@ -1110,7 +1118,7 @@ class NovaMengyuDraw(Star):
 
             image_path = result.get("image_path", "")
             logger.info(
-                f"[NovaMengyuDraw] 指令生图成功: model={result.get('model_name', '未知')}, "
+                f"[NovaCloudComfyUI] 指令生图成功: model={result.get('model_name', '未知')}, "
                 f"size={result.get('width')}x{result.get('height')}, "
                 f"points={result.get('points_used', '?')}/{result.get('remaining_points', '?')}, "
                 f"seed={result.get('actual_seed', '?')}, image_path={image_path}"
@@ -1132,7 +1140,7 @@ class NovaMengyuDraw(Star):
                 yield event.plain_result("生成成功，但图片文件路径为空").stop_event()
 
         except Exception as e:
-            logger.error(f"[NovaMengyuDraw] 指令生图失败: {repr(e)}")
+            logger.error(f"[NovaCloudComfyUI] 指令生图失败: {repr(e)}")
             yield event.plain_result(f"生成图片失败: {repr(e)}").stop_event()
 
         finally:
